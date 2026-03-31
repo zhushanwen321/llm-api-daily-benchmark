@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+
+# 敏感配置（API keys）
+benchmark/configs/models.yaml
+
+# 数据和日志
+benchmark/data/*.db
+benchmark/datasets/*/
+benchmark/logs/*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
