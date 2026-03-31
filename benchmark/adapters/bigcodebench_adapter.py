@@ -20,10 +20,9 @@ class BigCodeBenchAdapter(DatasetAdapter):
         cache_dir = path or os.path.join("benchmark", "datasets", "bigcodebench")
         dataset = load_dataset(
             "bigcode/bigcodebench-hard",
-            split="test",
+            split="v0.1.0_hf",
             cache_dir=cache_dir,
             download_mode="reuse_dataset_if_exists",
-            trust_remote_code=True,
         )
 
         # 随机选 5 题（固定随机种子保证可复现）
@@ -39,7 +38,7 @@ class BigCodeBenchAdapter(DatasetAdapter):
                 task_id=task_id,
                 dimension="backend-dev",
                 dataset="bigcodebench",
-                prompt=item.get("instruct", item.get("prompt", "")),
+                prompt=item.get("instruct_prompt", item.get("complete_prompt", "")),
                 expected_output="",
                 metadata={
                     "difficulty": "hard",
