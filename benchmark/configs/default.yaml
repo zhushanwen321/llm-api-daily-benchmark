@@ -1,0 +1,27 @@
+# LLM Benchmark 默认配置
+model: "glm-4.7"
+temperature: 0.0
+max_tokens: 4096
+max_retries: 3
+timeout: 300
+
+# 数据集根目录
+dataset_root: "benchmark/datasets"
+
+# 维度权重配置
+dimensions:
+  reasoning:
+    adapter: "gsm8k"
+    auto_weight: 0.8
+    judge_weight: 0.2
+
+  backend-dev:
+    adapter: "bigcodebench"
+    auto_weight: 0.8
+    judge_weight: 0.2
+
+# 难度权重
+difficulty_weights:
+  easy: 1.0
+  medium: 1.5
+  hard: 2.0
