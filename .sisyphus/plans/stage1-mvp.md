@@ -1,5 +1,12 @@
 # Stage 1: MVP 核心评测能力 Implementation Plan
 
+> **STATUS:** ✅ **ALL TASKS COMPLETED** (2026-03-31)
+> 
+> - Total Commits: 13
+> - All 13 implementation tasks finished
+> - All QA scenarios passed
+> - Ready for Stage 2 planning
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 构建 LLM Benchmark 的最小可用版本，支持 reasoning 和 backend-dev 两个维度的手动评测，结果持久化到 SQLite 并通过 Streamlit 展示。
@@ -105,7 +112,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ## TODOs
 
-- [ ] 1. Project scaffolding + pyproject.toml + .gitignore
+- [x] 1. Project scaffolding + pyproject.toml + .gitignore  ✅ COMPLETED
 
   **What to do**:
   - 创建 `pyproject.toml`，定义项目元数据和所有 Stage 1 依赖
@@ -298,7 +305,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 2. Data models (schemas.py)
+- [x] 2. Data models (schemas.py)  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/models/schemas.py`，定义所有 Pydantic 数据模型
@@ -442,7 +449,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 3. Config system (config.py + YAML)
+- [x] 3. Config system (config.py + YAML)  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/config.py`，实现配置加载逻辑
@@ -644,7 +651,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 4. Dataset adapter base class
+- [x] 4. Dataset adapter base class  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/adapters/base.py`，定义 `DatasetAdapter` 抽象基类
@@ -767,7 +774,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 5. Scorer base class + ScoreResult
+- [x] 5. Scorer base class + ScoreResult  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/scorers/base.py`，定义 `BaseScorer` 抽象基类和 `ScoreResult`（从 schemas 导入）
@@ -864,7 +871,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 6. SQLite database
+- [x] 6. SQLite database  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/models/database.py`，实现 SQLite 初始化、表创建、CRUD 操作
@@ -1213,7 +1220,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 7. GSM8K adapter
+- [x] 7. GSM8K adapter  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/adapters/gsm8k_adapter.py`
@@ -1360,7 +1367,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 8. ExactMatchScorer
+- [x] 8. ExactMatchScorer  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/scorers/exact_match_scorer.py`
@@ -1489,7 +1496,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 9. BigCodeBench adapter
+- [x] 9. BigCodeBench adapter  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/adapters/bigcodebench_adapter.py`
@@ -1611,7 +1618,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 10. ExecutionScorer
+- [x] 10. ExecutionScorer  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/scorers/execution_scorer.py`
@@ -1835,7 +1842,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 11. LLM Adapter
+- [x] 11. LLM Adapter  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/core/llm_adapter.py`
@@ -1996,7 +2003,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 12. CLI commands (evaluate + list-datasets + export)
+- [x] 12. CLI commands (evaluate + list-datasets + export)  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/cli.py`，实现 3 个命令： `evaluate`, `list-datasets`, `export`
@@ -2269,7 +2276,7 @@ Wave FINAL (Verification — 4 parallel reviews):
 
 ---
 
-- [ ] 13. Streamlit basic interface
+- [x] 13. Streamlit basic interface  ✅ COMPLETED
 
   **What to do**:
   - 创建 `benchmark/visualization/app.py`
