@@ -15,11 +15,27 @@ class LLMEvalAdapter:
 
     从 models.yaml 加载配置，调用 OpenAI 兼容的 /chat/completions API.
     支持重试（最多 max_retries 次，指数退避）。
+    如果初始化时传入 model，配置只加载一次；否则在 generate() 时按需加载。
     """
 
-    def __init__(self, max_retries: int = 3, timeout: int = 300) -> None:
+    def __init__(
+        self,
+        model: str | None = None,
+        max_retries: int = 3,
+        timeout: int = 300,
+    ) -> None:
         self.max_retries = max_retries
         self.timeout = timeout
+        self._model_cache: dict[str, dict[str, Any]] = {}
+        # 初始化时预加载模型配置（如果指定了 model）
+        if model:
+            self._model_cache[model] = get_model_config(model)
+
+    def _get_model_config(self, model: str) -> dict[str, Any]:
+        """获取模型配置，带缓存."""
+        if model not in self._model_cache:
+            self._model_cache[model] = get_model_config(model)
+        return self._model_cache[model]
 
     def generate(
         self,
@@ -43,7 +59,7 @@ class LLMEvalAdapter:
             ValueError: 模型未配置.
             ConnectionError: 重试耗尽后仍失败.
         """
-        cfg = get_model_config(model)
+        cfg = self._get_model_config(model)
         api_key = cfg["api_key"]
         api_base = cfg["api_base"].rstrip("/")
         model_max_tokens = cfg.get("max_tokens", max_tokens)

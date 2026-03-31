@@ -59,7 +59,7 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
     adapter_cls, scorer_cls = DIMENSION_REGISTRY[dimension]
     adapter = adapter_cls()
     scorer = scorer_cls()
-    llm = LLMEvalAdapter()
+    llm = LLMEvalAdapter(model=model)
     db = Database()
 
     tasks = adapter.load()[:samples]
