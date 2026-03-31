@@ -60,7 +60,6 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
     adapter = adapter_cls()
     scorer = scorer_cls()
     llm = LLMEvalAdapter(model=model)
-    db = Database()
 
     tasks = adapter.load()[:samples]
     if not tasks:
@@ -72,7 +71,7 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
         f"{dimension} with {len(tasks)} tasks, model={model}"
     )
 
-    run_id = str(uuid.uuid4())[:8]
+    run_id = str(uuid.uuid4())[:12]
     run = EvalRun(
         run_id=run_id,
         model=model,
@@ -81,56 +80,67 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
         started_at=datetime.now(),
         status="running",
     )
-    db.create_run(run)
+    db = Database()
+    try:
+        db.create_run(run)
 
-    total_score = 0.0
-    passed_count = 0
-    with Progress() as progress:
-        task_progress = progress.add_task("Evaluating", total=len(tasks))
-        for i, task in enumerate(tasks, 1):
-            start_time = datetime.now()
-            model_output = llm.generate(task.prompt, model)
-            execution_time = (datetime.now() - start_time).total_seconds()
+        total_score = 0.0
+        passed_count = 0
+        with Progress() as progress:
+            task_progress = progress.add_task("Evaluating", total=len(tasks))
+            for i, task in enumerate(tasks, 1):
+                start_time = datetime.now()
+                model_output = llm.generate(task.prompt, model)
+                execution_time = (datetime.now() - start_time).total_seconds()
 
-            score_result = scorer.score(model_output, task.expected_output, task)
+                score_result = scorer.score(model_output, task.expected_output, task)
 
-            result = EvalResult(
-                result_id=str(uuid.uuid4())[:8],
-                run_id=run_id,
-                task_id=task.task_id,
-                task_content=task.prompt,
-                model_output=model_output,
-                functional_score=score_result.score,
-                final_score=score_result.score,
-                passed=score_result.passed,
-                details=score_result.details,
-                execution_time=execution_time,
-                created_at=datetime.now(),
-            )
-            db.save_result(result)
+                result = EvalResult(
+                    result_id=str(uuid.uuid4())[:12],
+                    run_id=run_id,
+                    task_id=task.task_id,
+                    task_content=task.prompt,
+                    model_output=model_output,
+                    functional_score=score_result.score,
+                    final_score=score_result.score,
+                    passed=score_result.passed,
+                    details=score_result.details,
+                    execution_time=execution_time,
+                    created_at=datetime.now(),
+                )
+                db.save_result(result)
 
-            total_score += score_result.score
-            if score_result.passed:
-                passed_count += 1
+                total_score += score_result.score
+                if score_result.passed:
+                    passed_count += 1
 
-            status_icon = (
-                "[green]PASS[/green]" if score_result.passed else "[red]FAIL[/red]"
-            )
-            console.print(
-                f"  [{i}/{len(tasks)}] {task.task_id} | "
-                f"Score: {score_result.score:.0f} | {status_icon} | "
-                f"Time: {execution_time:.1f}s"
-            )
-            progress.advance(task_progress)
+                status_icon = (
+                    "[green]PASS[/green]" if score_result.passed else "[red]FAIL[/red]"
+                )
+                console.print(
+                    f"  [{i}/{len(tasks)}] {task.task_id} | "
+                    f"Score: {score_result.score:.0f} | {status_icon} | "
+                    f"Time: {execution_time:.1f}s"
+                )
+                progress.advance(task_progress)
 
-    db.finish_run(run_id, "completed")
+        db.finish_run(run_id, "completed")
 
-    avg_score = total_score / len(tasks) if tasks else 0
-    console.print(
-        f"\n[bold]Evaluation complete:[/bold] run_id={run_id}\n"
-        f"  Average Score: [bold]{avg_score:.1f}[/bold]\n"
-        f"  Passed: {passed_count}/{len(tasks)}"
-    )
+        avg_score = total_score / len(tasks) if tasks else 0
+        console.print(
+            f"\n[bold]Evaluation complete:[/bold] run_id={run_id}\n"
+            f"  Average Score: [bold]{avg_score:.1f}[/bold]\n"
+            f"  Passed: {passed_count}/{len(tasks)}"
+        )
+    except Exception:
+        console.print("[red]Evaluation failed![/red]")
+        try:
+            db.finish_run(run_id, "failed")
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()
 
 
 @cli.command("list-datasets")
