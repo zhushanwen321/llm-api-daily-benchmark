@@ -1,6 +1,7 @@
 """SQLite 数据库操作。
 
 负责评测结果的持久化存储。使用 sqlite3 标准库，不依赖 ORM。
+支持上下文管理器，在 __init__ 时建立连接，close() 时关闭。
 """
 
 from __future__ import annotations
@@ -15,15 +16,41 @@ from benchmark.models.schemas import EvalResult, EvalRun
 
 
 class Database:
-    """SQLite 数据库操作类。"""
+    """SQLite 数据库操作类。
+
+    支持上下文管理器：
+        with Database() as db:
+            db.create_run(run)
+            db.save_result(result)
+    也可以直接使用：
+        db = Database()
+        db.create_run(run)
+        db.close()
+    """
 
     def __init__(self, db_path: str | Path = "benchmark/data/results.db") -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._conn: sqlite3.Connection | None = None
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
-        return sqlite3.connect(str(self.db_path))
+        """获取连接。单次 Database 实例生命周期内复用同一连接."""
+        if self._conn is None:
+            self._conn = sqlite3.connect(str(self.db_path))
+        return self._conn
+
+    def close(self) -> None:
+        """关闭数据库连接."""
+        if self._conn is not None:
+            self._conn.close()
+            self._conn = None
+
+    def __enter__(self) -> Database:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
 
     def _init_db(self) -> None:
         """初始化数据库表（如不存在则创建）。"""
@@ -64,7 +91,6 @@ class Database:
         """)
 
         conn.commit()
-        conn.close()
 
     def create_run(self, run: EvalRun) -> str:
         """创建评测运行记录。"""
@@ -84,7 +110,6 @@ class Database:
             ),
         )
         conn.commit()
-        conn.close()
         return run.run_id
 
     def finish_run(self, run_id: str, status: str = "completed") -> None:
@@ -95,7 +120,6 @@ class Database:
             (datetime.now().isoformat(), status, run_id),
         )
         conn.commit()
-        conn.close()
 
     def save_result(self, result: EvalResult) -> str:
         """保存单题评测结果。"""
@@ -122,7 +146,6 @@ class Database:
             ),
         )
         conn.commit()
-        conn.close()
         return result.result_id
 
     def get_results(
@@ -152,7 +175,6 @@ class Database:
         cursor = conn.execute(query, params)
         columns = [desc[0] for desc in cursor.description]
         rows = [dict(zip(columns, row)) for row in cursor.fetchall()]
-        conn.close()
         return rows
 
     def get_result_detail(self, result_id: str) -> Optional[dict]:
@@ -167,7 +189,6 @@ class Database:
         )
         columns = [desc[0] for desc in cursor.description]
         row = cursor.fetchone()
-        conn.close()
         if row is None:
             return None
         return dict(zip(columns, row))
