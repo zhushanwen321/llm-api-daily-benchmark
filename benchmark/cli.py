@@ -27,6 +27,11 @@ DIMENSION_REGISTRY: dict[str, tuple] = {
     "backend-dev": (BigCodeBenchAdapter, ExecutionScorer),
 }
 
+DATASET_REGISTRY: dict[str, str] = {
+    "reasoning": "gsm8k",
+    "backend-dev": "bigcodebench",
+}
+
 
 @click.group()
 def cli():
@@ -49,7 +54,7 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
     """运行评测。调用 LLM 生成答案，评分并保存结果."""
     if dimension not in DIMENSION_REGISTRY:
         console.print(f"[red]Unknown dimension: {dimension}[/red]")
-        raise System.Exit(1)
+        raise SystemExit(1)
 
     adapter_cls, scorer_cls = DIMENSION_REGISTRY[dimension]
     adapter = adapter_cls()
@@ -60,7 +65,7 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
     tasks = adapter.load()[:samples]
     if not tasks:
         console.print("[red]No tasks loaded.[/red]")
-        raise System.Exit(1)
+        raise SystemExit(1)
 
     console.print(
         f"[bold green]Starting evaluation:[/bold green] "
@@ -72,7 +77,7 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
         run_id=run_id,
         model=model,
         dimension=dimension,
-        dataset=adapter.get_dimension(),
+        dataset=DATASET_REGISTRY[dimension],
         started_at=datetime.now(),
         status="running",
     )
