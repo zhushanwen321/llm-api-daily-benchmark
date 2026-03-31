@@ -1,0 +1,84 @@
+"""LLM API 调用适配器.支持 OpenAI 兼容接口（GLM、GPT 等）."""
+
+from __future__ import annotations
+
+import time
+from typing import Any
+
+import requests
+
+from benchmark.config import get_model_config
+
+
+class LLMEvalAdapter:
+    """LLM 调用适配器.
+
+    从 models.yaml 加载配置，调用 OpenAI 兼容的 /chat/completions API.
+    支持重试（最多 max_retries 次，指数退避）。
+    """
+
+    def __init__(self, max_retries: int = 3, timeout: int = 300) -> None:
+        self.max_retries = max_retries
+        self.timeout = timeout
+
+    def generate(
+        self,
+        prompt: str,
+        model: str,
+        temperature: float = 0.0,
+        max_tokens: int = 4096,
+    ) -> str:
+        """调用 LLM 生成文本.
+
+        Args:
+            prompt: 输入提示.
+            model: 模型名称（需在 models.yaml 中配置）.
+            temperature: 温度参数（评测时固定为 0）.
+            max_tokens: 最大输出 token 数.
+
+        Returns:
+            模型生成的文本.
+
+        Raises:
+            ValueError: 模型未配置.
+            ConnectionError: 重试耗尽后仍失败.
+        """
+        cfg = get_model_config(model)
+        api_key = cfg["api_key"]
+        api_base = cfg["api_base"].rstrip("/")
+        model_max_tokens = cfg.get("max_tokens", max_tokens)
+
+        url = f"{api_base}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
+        payload: dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": temperature,
+            "max_tokens": min(max_tokens, model_max_tokens),
+        }
+
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                resp = requests.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.timeout,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"]
+
+            except requests.exceptions.RequestException as exc:
+                last_error = exc
+                if attempt < self.max_retries - 1:
+                    wait = 2**attempt  # 1s, 2s, 4s
+                    time.sleep(wait)
+
+        raise ConnectionError(
+            f"Failed after {self.max_retries} retries for model '{model}': {last_error}"
+        ) from last_error
