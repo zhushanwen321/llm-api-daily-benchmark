@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 import requests
 
 from benchmark.config import get_model_config
+from benchmark.core.rate_limiter import TokenBucketRateLimiter
+
+logger = logging.getLogger(__name__)
 
 # 当模型配置未指定 max_tokens 时的默认值
 _DEFAULT_MAX_TOKENS = 4096
@@ -18,8 +22,11 @@ class LLMEvalAdapter:
 
     从 models.yaml 加载配置，调用 OpenAI 兼容的 /chat/completions API.
     支持重试（最多 max_retries 次，指数退避）。
-    如果初始化时传入 model，配置只加载一次；否则在 generate() 时按需加载。
+    支持 provider 级令牌桶限流。
     """
+
+    # provider -> limiter 实例缓存，同一 provider 的所有模型共享
+    _provider_limiters: dict[str, TokenBucketRateLimiter] = {}
 
     def __init__(
         self,
@@ -30,9 +37,21 @@ class LLMEvalAdapter:
         self.max_retries = max_retries
         self.timeout = timeout
         self._model_cache: dict[str, dict[str, Any]] = {}
-        # 初始化时预加载模型配置（如果指定了 model）
+        self._limiter: TokenBucketRateLimiter | None = None
         if model:
             self._model_cache[model] = get_model_config(model)
+            self._limiter = self._get_or_create_limiter(model)
+
+    def _get_or_create_limiter(self, model: str) -> TokenBucketRateLimiter | None:
+        """获取或创建 provider 级限流器。"""
+        cfg = self._get_model_config(model)
+        rate = cfg.get("rate_limit")
+        if rate is None:
+            return None
+        provider = cfg["provider"]
+        if provider not in self._provider_limiters:
+            self._provider_limiters[provider] = TokenBucketRateLimiter(rate=rate)
+        return self._provider_limiters[provider]
 
     def _get_model_config(self, model: str) -> dict[str, Any]:
         """获取模型配置，带缓存."""
@@ -51,7 +70,7 @@ class LLMEvalAdapter:
 
         Args:
             prompt: 输入提示.
-            model: 模型名称（需在 models.yaml 中配置）.
+            model: 模型标识（provider/model 格式）.
             temperature: 温度参数（评测时固定为 0）.
             max_tokens: 最大输出 token 数.
 
@@ -67,13 +86,17 @@ class LLMEvalAdapter:
         api_base = cfg["api_base"].rstrip("/")
         model_max_tokens = cfg.get("max_tokens", max_tokens)
 
+        # 限流
+        if self._limiter is not None:
+            self._limiter.acquire()
+
         url = f"{api_base}/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
         payload: dict[str, Any] = {
-            "model": model,
+            "model": model.split("/", 1)[1] if "/" in model else model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": min(max_tokens, model_max_tokens),
