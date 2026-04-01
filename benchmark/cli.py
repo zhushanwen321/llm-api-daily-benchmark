@@ -15,6 +15,7 @@ from typing import Any
 import click
 from dotenv import load_dotenv
 from rich.console import Console
+from rich.progress import Progress
 
 from benchmark.adapters.bigcodebench_adapter import BigCodeBenchAdapter
 from benchmark.adapters.gsm8k_adapter import GSM8KAdapter
@@ -230,20 +231,23 @@ async def _run_evaluation(
             _evaluate_task(i, task, model, llm, scorer, db, run_id, len(tasks), debug)
             for i, task in enumerate(tasks)
         ]
-        results = await asyncio.gather(*coros, return_exceptions=True)
 
         total_score = 0.0
         passed_count = 0
         failed_count = 0
-        for r in results:
-            if isinstance(r, Exception):
-                failed_count += 1
-                continue
-            if r.get("error"):
-                failed_count += 1
-            total_score += r["score"]
-            if r["passed"]:
-                passed_count += 1
+        with Progress() as progress:
+            task_progress = progress.add_task("Evaluating", total=len(tasks))
+            for coro in asyncio.as_completed(coros):
+                r = await coro
+                progress.advance(task_progress)
+                if isinstance(r, Exception):
+                    failed_count += 1
+                    continue
+                if r.get("error"):
+                    failed_count += 1
+                total_score += r["score"]
+                if r["passed"]:
+                    passed_count += 1
 
         if failed_count == 0:
             db.finish_run(run_id, "completed")
