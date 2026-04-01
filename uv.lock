@@ -669,6 +669,7 @@ source = { editable = "." }
 dependencies = [
     { name = "click" },
     { name = "datasets" },
+    { name = "httpx" },
     { name = "pandas" },
     { name = "pydantic" },
     { name = "python-dotenv" },
@@ -687,6 +688,7 @@ dev = [
 requires-dist = [
     { name = "click", specifier = ">=8.0" },
     { name = "datasets", specifier = ">=2.14" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },

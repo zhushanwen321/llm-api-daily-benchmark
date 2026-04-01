@@ -87,10 +87,13 @@ def get_model_config(model_name: str, models_path: str | Path | None = None) -> 
         )
 
     model_cfg = models[model_id] or {}
+    # 读取全局默认值，默认为 131072
+    defaults = cfg.get("defaults", {})
+    default_max_tokens = defaults.get("max_tokens", 131072)
     return {
         "provider": provider_name,
         "api_key": provider_cfg["api_key"],
         "api_base": provider_cfg["api_base"],
-        "max_tokens": model_cfg.get("max_tokens", 4096),
+        "max_tokens": model_cfg.get("max_tokens", default_max_tokens),
         "rate_limit": float(provider_cfg["rate_limit"]) if "rate_limit" in provider_cfg else None,
     }
