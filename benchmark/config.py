@@ -34,7 +34,7 @@ def load_models_config(models_path: str | Path | None = None) -> dict[str, Any]:
         models_path: 模型配置路径。为 None 时使用 configs/models.yaml。
 
     Returns:
-        模型配置字典，包含 models 键。
+        模型配置字典（providers -> models 两层结构）。
     """
     path = Path(models_path) if models_path else _CONFIG_DIR / "models.yaml"
     if not path.exists():
@@ -47,20 +47,37 @@ def load_models_config(models_path: str | Path | None = None) -> dict[str, Any]:
 
 
 def get_model_config(model_name: str) -> dict[str, Any]:
-    """获取指定模型的配置。
+    """获取指定模型的完整配置（合并 provider 和 model 层级的配置）。
+
+    在 providers 下遍历所有 provider，找到包含该模型名的 provider，
+    返回合并后的配置：api_key, api_base 来自 provider，max_tokens 来自 model（可选）。
 
     Args:
         model_name: 模型名称（如 glm-4.7）。
 
     Returns:
-        该模型的配置字典。
+        合并后的配置字典，包含 api_key, api_base, max_tokens 等字段。
 
     Raises:
-        ValueError: 模型未在配置中定义。
+        ValueError: 模型未在任何 provider 下找到。
     """
-    models_cfg = load_models_config()
-    models = models_cfg.get("models", {})
-    if model_name not in models:
-        available = ", ".join(models.keys()) if models else "none"
-        raise ValueError(f"Model '{model_name}' not found. Available: {available}")
-    return models[model_name]
+    cfg = load_models_config()
+    providers = cfg.get("providers", {})
+
+    for provider_name, provider_cfg in providers.items():
+        models = provider_cfg.get("models", {})
+        if model_name in models:
+            model_cfg = models[model_name] or {}
+            return {
+                "provider": provider_name,
+                "api_key": provider_cfg["api_key"],
+                "api_base": provider_cfg["api_base"],
+                "max_tokens": model_cfg.get("max_tokens", 4096),
+            }
+
+    # 收集所有可用模型名用于错误提示
+    all_models: list[str] = []
+    for provider_cfg in providers.values():
+        all_models.extend((provider_cfg.get("models") or {}).keys())
+    available = ", ".join(all_models) if all_models else "none"
+    raise ValueError(f"Model '{model_name}' not found. Available: {available}")

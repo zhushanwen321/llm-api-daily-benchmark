@@ -9,6 +9,9 @@ import requests
 
 from benchmark.config import get_model_config
 
+# 当模型配置未指定 max_tokens 时的默认值
+_DEFAULT_MAX_TOKENS = 4096
+
 
 class LLMEvalAdapter:
     """LLM 调用适配器.
