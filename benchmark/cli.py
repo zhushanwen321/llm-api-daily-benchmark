@@ -18,7 +18,7 @@ from benchmark.adapters.bigcodebench_adapter import BigCodeBenchAdapter
 from benchmark.adapters.gsm8k_adapter import GSM8KAdapter
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.models.database import Database
-from benchmark.models.schemas import EvalResult, EvalRun
+from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.execution_scorer import ExecutionScorer
 from benchmark.scorers.exact_match_scorer import ExactMatchScorer
 
@@ -103,13 +103,15 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
             task_progress = progress.add_task("Evaluating", total=len(tasks))
             for i, task in enumerate(tasks, 1):
                 start_time = datetime.now()
-                model_output = llm.generate(task.prompt, model)
+                gen_response = llm.generate(task.prompt, model)
                 execution_time = (datetime.now() - start_time).total_seconds()
+                model_output = gen_response.content
 
                 score_result = scorer.score(model_output, task.expected_output, task)
 
+                result_id = str(uuid.uuid4())[:12]
                 result = EvalResult(
-                    result_id=str(uuid.uuid4())[:12],
+                    result_id=result_id,
                     run_id=run_id,
                     task_id=task.task_id,
                     task_content=task.prompt,
@@ -123,6 +125,23 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
                 )
                 db.save_result(result)
 
+                # 计算 token 速度并记录
+                tps = (
+                    gen_response.completion_tokens / execution_time
+                    if execution_time > 0
+                    else 0.0
+                )
+                db.save_metrics(
+                    ApiCallMetrics(
+                        result_id=result_id,
+                        prompt_tokens=gen_response.prompt_tokens,
+                        completion_tokens=gen_response.completion_tokens,
+                        duration=execution_time,
+                        tokens_per_second=tps,
+                        created_at=datetime.now(),
+                    )
+                )
+
                 total_score += score_result.score
                 if score_result.passed:
                     passed_count += 1
@@ -133,7 +152,8 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
                 console.print(
                     f"  [{i}/{len(tasks)}] {task.task_id} | "
                     f"Score: {score_result.score:.0f} | {status_icon} | "
-                    f"Time: {execution_time:.1f}s"
+                    f"Time: {execution_time:.1f}s | "
+                    f"Speed: {tps:.1f} tok/s"
                 )
                 progress.advance(task_progress)
 
