@@ -33,11 +33,14 @@ class GenerateResponse(BaseModel):
     """LLM API 调用响应，包含文本和 token 用量。"""
 
     content: str
+    reasoning_content: str = ""   # 推理过程（从 API reasoning_content 字段获取）
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    reasoning_tokens: int = 0     # 推理 token 数
     duration: float = 0.0
     tokens_per_second: float = 0.0
-    ttft: float = 0.0
+    ttft: float = 0.0             # 首 token 延迟（TTFT-R）
+    ttft_content: float = 0.0     # 首 content token 延迟（TTFT-C）
     truncated: bool = False
     finish_reason: str = ""
 
@@ -63,6 +66,8 @@ class EvalResult(BaseModel):
     task_id: str
     task_content: str
     model_output: str
+    model_think: str = ""
+    model_answer: str = ""
     functional_score: float
     quality_score: float = 0.0
     final_score: float
@@ -78,6 +83,9 @@ class ApiCallMetrics(BaseModel):
     result_id: str
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    reasoning_tokens: int = 0
+    reasoning_content: str = ""
     duration: float = 0.0
     tokens_per_second: float = 0.0
+    ttft_content: float = 0.0
     created_at: datetime
