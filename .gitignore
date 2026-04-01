@@ -20,6 +20,9 @@ benchmark/logs/*.log
 .vscode/
 *.swp
 
+# 环境变量（代理等）
+.env
+
 # OS
 .DS_Store
 Thumbs.db

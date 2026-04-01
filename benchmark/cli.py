@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import uuid
 from datetime import datetime
 from pathlib import Path
 
 import click
+from dotenv import load_dotenv
 from rich.console import Console
 from rich.progress import Progress
 
@@ -33,6 +35,16 @@ DATASET_REGISTRY: dict[str, str] = {
 }
 
 
+def _setup_proxy() -> None:
+    """从 .env 加载代理配置，用于 HuggingFace 数据集下载."""
+    load_dotenv()
+    proxy = os.getenv("HF_PROXY")
+    if proxy:
+        os.environ.setdefault("http_proxy", proxy)
+        os.environ.setdefault("https_proxy", proxy)
+        os.environ.setdefault("all_proxy", proxy)
+
+
 @click.group()
 def cli():
     """LLM Benchmark 评测工具."""
@@ -52,6 +64,7 @@ def cli():
 @click.option("--samples", default=5, help="评测题目数量")
 def evaluate(model: str, dimension: str, samples: int) -> None:
     """运行评测。调用 LLM 生成答案，评分并保存结果."""
+    _setup_proxy()
     if dimension not in DIMENSION_REGISTRY:
         console.print(f"[red]Unknown dimension: {dimension}[/red]")
         raise SystemExit(1)

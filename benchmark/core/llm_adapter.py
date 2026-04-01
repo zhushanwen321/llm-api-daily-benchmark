@@ -24,7 +24,7 @@ class LLMEvalAdapter:
     def __init__(
         self,
         model: str | None = None,
-        max_retries: int = 3,
+        max_retries: int = 5,
         timeout: int = 300,
     ) -> None:
         self.max_retries = max_retries
@@ -95,7 +95,14 @@ class LLMEvalAdapter:
             except requests.exceptions.RequestException as exc:
                 last_error = exc
                 if attempt < self.max_retries - 1:
-                    wait = 2**attempt  # 1s, 2s, 4s
+                    # 429 限频用更长退避，其他错误用标准退避
+                    is_rate_limited = (
+                        isinstance(exc, requests.exceptions.HTTPError)
+                        and exc.response is not None
+                        and exc.response.status_code == 429
+                    )
+                    base = 10 if is_rate_limited else 2
+                    wait = min(base * 2**attempt, 120)
                     time.sleep(wait)
 
         raise ConnectionError(

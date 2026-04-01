@@ -52,6 +52,19 @@ providers:
 - `max_tokens` 配置在 model 层级，可省略（默认 4096）
 - `models.yaml` 已在 `.gitignore` 中，不会被提交
 
+## 配置代理（可选）
+
+数据集首次运行时从 HuggingFace 下载，下载后缓存到 `benchmark/datasets/`，后续无需网络。
+
+如果网络无法直连 HuggingFace，创建 `.env` 文件配置代理：
+
+```bash
+cp .env.example .env
+# 编辑 .env，填入代理地址
+# HF_PROXY=http://your-proxy:port
+# HF_TOKEN=hf_xxxxxxxx    （可选，提升下载速率）
+```
+
 ## 运行评测
 
 如果使用 `uv`，请在命令前加上 `uv run`：
