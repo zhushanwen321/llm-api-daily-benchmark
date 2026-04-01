@@ -53,7 +53,7 @@ def cli():
 
 @cli.command()
 @click.option(
-    "--model", required=True, help="模型名称（需在 configs/models.yaml 中配置）"
+    "--model", required=True, help="模型标识，格式: provider/model（如 glm/glm-4.7）"
 )
 @click.option(
     "--dimension",
