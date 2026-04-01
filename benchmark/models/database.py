@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from benchmark.models.schemas import EvalResult, EvalRun
+from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 
 
 class Database:
@@ -90,6 +90,19 @@ class Database:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_call_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                result_id TEXT UNIQUE NOT NULL,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                duration REAL NOT NULL DEFAULT 0,
+                tokens_per_second REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (result_id) REFERENCES eval_results(result_id)
+            )
+        """)
+
         conn.commit()
 
     def create_run(self, run: EvalRun) -> str:
@@ -147,6 +160,26 @@ class Database:
         )
         conn.commit()
         return result.result_id
+
+    def save_metrics(self, metrics: ApiCallMetrics) -> str:
+        """保存 API 调用的 token 指标。"""
+        conn = self._get_conn()
+        conn.execute(
+            """INSERT INTO api_call_metrics
+               (result_id, prompt_tokens, completion_tokens,
+                duration, tokens_per_second, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                metrics.result_id,
+                metrics.prompt_tokens,
+                metrics.completion_tokens,
+                metrics.duration,
+                metrics.tokens_per_second,
+                metrics.created_at.isoformat(),
+            ),
+        )
+        conn.commit()
+        return metrics.result_id
 
     def get_results(
         self,
