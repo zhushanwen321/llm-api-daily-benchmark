@@ -29,6 +29,14 @@ class ScoreResult(BaseModel):
     reasoning: str = ""
 
 
+class GenerateResponse(BaseModel):
+    """LLM API 调用响应，包含文本和 token 用量。"""
+
+    content: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
 class EvalRun(BaseModel):
     """一次评测运行的记录。"""
 
@@ -56,4 +64,15 @@ class EvalResult(BaseModel):
     passed: bool
     details: dict[str, Any] = Field(default_factory=dict)
     execution_time: float
+    created_at: datetime
+
+
+class ApiCallMetrics(BaseModel):
+    """单次 API 调用的 token 指标。"""
+
+    result_id: str
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+    duration: float = 0.0
+    tokens_per_second: float = 0.0
     created_at: datetime
