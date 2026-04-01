@@ -43,6 +43,8 @@ def get_results_df(
             r.passed,
             r.execution_time,
             m.tokens_per_second,
+            m.ttft_content,
+            m.reasoning_tokens,
             m.prompt_tokens,
             m.completion_tokens,
             r.created_at
@@ -129,15 +131,28 @@ def main() -> None:
         "Date",
     ]
 
-    st.dataframe(display_df, width="stretch", hide_index=True)
+    # 使用 dataframe 的 on_select 实现行点击选中
+    selection = st.dataframe(
+        display_df,
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row",
+    )
 
-    st.subheader("Result Detail")
-    result_ids = df["result_id"].tolist()
-    selected_result = st.selectbox("Select a result to view details", result_ids)
+    # 从 selection 中获取选中的行索引
+    selected_rows = selection.get("selection", {}).get("rows", [])
+    if selected_rows:
+        row_idx = selected_rows[0]
+        selected_result_id = df.iloc[row_idx]["result_id"]
+    else:
+        # 默认选中第一条
+        selected_result_id = df.iloc[0]["result_id"]
 
-    if selected_result:
-        detail = get_result_detail(conn, selected_result)
+    if selected_result_id:
+        detail = get_result_detail(conn, selected_result_id)
         if detail:
+            st.divider()
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Score", f"{detail['final_score']:.1f}")
@@ -147,7 +162,7 @@ def main() -> None:
                 # 查询 token 指标
                 metrics_row = conn.execute(
                     "SELECT * FROM api_call_metrics WHERE result_id = ?",
-                    (selected_result,),
+                    (selected_result_id,),
                 ).fetchone()
                 if metrics_row:
                     st.metric(
@@ -158,6 +173,16 @@ def main() -> None:
                         "Tokens",
                         f"{metrics_row['prompt_tokens']} in / {metrics_row['completion_tokens']} out",
                     )
+                    if metrics_row.get("reasoning_tokens", 0) > 0:
+                        st.metric(
+                            "Reasoning Tokens",
+                            f"{metrics_row['reasoning_tokens']}",
+                        )
+                    if metrics_row.get("ttft_content", 0) > 0:
+                        st.metric(
+                            "TTFT-C",
+                            f"{metrics_row['ttft_content']:.2f}s",
+                        )
 
             with col2:
                 st.text_area(
@@ -166,9 +191,26 @@ def main() -> None:
                     height=200,
                     disabled=True,
                 )
+
+                # 展示思考过程（折叠），优先从 metrics 读取 API 原生 reasoning_content
+                think_content = detail.get("model_think", "") or ""
+                if metrics_row and metrics_row["reasoning_content"]:
+                    think_content = metrics_row["reasoning_content"]
+                if think_content:
+                    with st.expander("Thinking", expanded=False):
+                        st.text_area(
+                            "Thinking Process",
+                            value=think_content,
+                            height=200,
+                            disabled=True,
+                            label_visibility="collapsed",
+                        )
+
+                # 展示最终答案
+                answer_content = detail.get("model_answer", "") or ""
                 st.text_area(
-                    "Output",
-                    value=detail.get("model_output", "") or "",
+                    "Answer",
+                    value=answer_content,
                     height=300,
                     disabled=True,
                 )
