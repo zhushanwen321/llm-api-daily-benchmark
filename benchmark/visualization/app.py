@@ -150,18 +150,13 @@ def main() -> None:
                     (selected_result,),
                 ).fetchone()
                 if metrics_row:
-                    cols = [d[0] for d in conn.execute(
-                        "SELECT * FROM api_call_metrics WHERE result_id = ?",
-                        (selected_result,),
-                    ).description]
-                    metrics = dict(zip(cols, metrics_row))
                     st.metric(
                         "Token Speed",
-                        f"{metrics['tokens_per_second']:.1f} tok/s",
+                        f"{metrics_row['tokens_per_second']:.1f} tok/s",
                     )
                     st.metric(
                         "Tokens",
-                        f"{metrics['prompt_tokens']} in / {metrics['completion_tokens']} out",
+                        f"{metrics_row['prompt_tokens']} in / {metrics_row['completion_tokens']} out",
                     )
 
             with col2:
