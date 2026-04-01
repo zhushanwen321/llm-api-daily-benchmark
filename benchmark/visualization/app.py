@@ -181,15 +181,17 @@ def main() -> None:
                         "Tokens",
                         f"{metrics_row['prompt_tokens']} in / {metrics_row['completion_tokens']} out",
                     )
-                    if metrics_row.get("reasoning_tokens", 0) > 0:
+                    reasoning_tokens = metrics_row["reasoning_tokens"] if "reasoning_tokens" in metrics_row.keys() else 0
+                    if reasoning_tokens > 0:
                         st.metric(
                             "Reasoning Tokens",
-                            f"{metrics_row['reasoning_tokens']}",
+                            f"{reasoning_tokens}",
                         )
-                    if metrics_row.get("ttft_content", 0) > 0:
+                    ttft_content = metrics_row["ttft_content"] if "ttft_content" in metrics_row.keys() else 0.0
+                    if ttft_content > 0:
                         st.metric(
                             "TTFT-C",
-                            f"{metrics_row['ttft_content']:.2f}s",
+                            f"{ttft_content:.2f}s",
                         )
 
             with col2:
