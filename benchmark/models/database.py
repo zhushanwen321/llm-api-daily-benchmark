@@ -57,6 +57,28 @@ class Database:
         conn = self._get_conn()
         cursor = conn.cursor()
 
+        # 检查 eval_results 是否缺少 model_think 列，若缺少则 drop 重建
+        needs_rebuild = False
+        try:
+            cursor.execute("SELECT model_think FROM eval_results LIMIT 1")
+        except sqlite3.OperationalError:
+            needs_rebuild = True
+
+        if needs_rebuild:
+            cursor.execute("DROP TABLE IF EXISTS api_call_metrics")
+            cursor.execute("DROP TABLE IF EXISTS eval_results")
+            cursor.execute("DROP TABLE IF EXISTS eval_runs")
+
+        # 检查 api_call_metrics 是否缺少新列，若缺少则 drop 重建该表
+        metrics_needs_rebuild = False
+        try:
+            cursor.execute("SELECT reasoning_tokens FROM api_call_metrics LIMIT 1")
+        except sqlite3.OperationalError:
+            metrics_needs_rebuild = True
+
+        if metrics_needs_rebuild:
+            cursor.execute("DROP TABLE IF EXISTS api_call_metrics")
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS eval_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +101,8 @@ class Database:
                 task_id TEXT NOT NULL,
                 task_content TEXT,
                 model_output TEXT,
+                model_think TEXT DEFAULT '',
+                model_answer TEXT DEFAULT '',
                 functional_score REAL NOT NULL DEFAULT 0,
                 quality_score REAL NOT NULL DEFAULT 0,
                 final_score REAL NOT NULL DEFAULT 0,
@@ -96,8 +120,11 @@ class Database:
                 result_id TEXT UNIQUE NOT NULL,
                 prompt_tokens INTEGER NOT NULL DEFAULT 0,
                 completion_tokens INTEGER NOT NULL DEFAULT 0,
+                reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+                reasoning_content TEXT DEFAULT '',
                 duration REAL NOT NULL DEFAULT 0,
                 tokens_per_second REAL NOT NULL DEFAULT 0,
+                ttft_content REAL NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (result_id) REFERENCES eval_results(result_id)
             )
@@ -140,15 +167,18 @@ class Database:
         conn.execute(
             """INSERT INTO eval_results
                (result_id, run_id, task_id, task_content, model_output,
+                model_think, model_answer,
                 functional_score, quality_score, final_score, passed,
                 details, execution_time, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 result.result_id,
                 result.run_id,
                 result.task_id,
                 result.task_content,
                 result.model_output,
+                result.model_think,
+                result.model_answer,
                 result.functional_score,
                 result.quality_score,
                 result.final_score,
@@ -167,14 +197,18 @@ class Database:
         conn.execute(
             """INSERT INTO api_call_metrics
                (result_id, prompt_tokens, completion_tokens,
-                duration, tokens_per_second, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+                reasoning_tokens, reasoning_content,
+                duration, tokens_per_second, ttft_content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 metrics.result_id,
                 metrics.prompt_tokens,
                 metrics.completion_tokens,
+                metrics.reasoning_tokens,
+                metrics.reasoning_content,
                 metrics.duration,
                 metrics.tokens_per_second,
+                metrics.ttft_content,
                 metrics.created_at.isoformat(),
             ),
         )
