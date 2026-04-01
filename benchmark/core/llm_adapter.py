@@ -9,6 +9,7 @@ from typing import Any
 import requests
 
 from benchmark.config import get_model_config
+from benchmark.models.schemas import GenerateResponse
 from benchmark.core.rate_limiter import TokenBucketRateLimiter
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class LLMEvalAdapter:
         model: str,
         temperature: float = 0.0,
         max_tokens: int = 4096,
-    ) -> str:
+    ) -> GenerateResponse:
         """调用 LLM 生成文本.
 
         Args:
@@ -75,7 +76,7 @@ class LLMEvalAdapter:
             max_tokens: 最大输出 token 数.
 
         Returns:
-            模型生成的文本.
+            GenerateResponse 对象，包含生成文本和 token 用量.
 
         Raises:
             ValueError: 模型未配置.
@@ -113,7 +114,13 @@ class LLMEvalAdapter:
                 )
                 resp.raise_for_status()
                 data = resp.json()
-                return data["choices"][0]["message"]["content"]
+                content = data["choices"][0]["message"]["content"]
+                usage = data.get("usage", {})
+                return GenerateResponse(
+                    content=content,
+                    prompt_tokens=usage.get("prompt_tokens", 0),
+                    completion_tokens=usage.get("completion_tokens", 0),
+                )
 
             except requests.exceptions.RequestException as exc:
                 last_error = exc
