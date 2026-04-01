@@ -124,7 +124,9 @@ def main() -> None:
     display_df["tokens_per_second"] = display_df["tokens_per_second"].apply(
         lambda x: f"{x:.1f} tok/s" if pd.notna(x) else "-"
     )
-    display_df = display_df.drop(columns=["prompt_tokens", "completion_tokens"])
+    display_df = display_df.drop(
+        columns=["prompt_tokens", "completion_tokens", "ttft_content", "reasoning_tokens"]
+    )
     display_df.columns = [
         "ID",
         "Model",
