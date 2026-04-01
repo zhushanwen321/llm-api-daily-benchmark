@@ -139,6 +139,10 @@ class LLMEvalAdapter:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        # 注入模型级 thinking 参数（如 MiniMax 的 reasoning_split）
+        thinking_cfg = cfg.get("thinking", {})
+        if thinking_cfg.get("enabled") and thinking_cfg.get("request_params"):
+            payload.update(thinking_cfg["request_params"])
 
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
@@ -165,10 +169,12 @@ class LLMEvalAdapter:
                 )
                 resp.raise_for_status()
 
+                reasoning_parts: list[str] = []
                 content_parts: list[str] = []
                 usage: dict[str, Any] = {}
                 t_start = time.monotonic()
                 t_first_token: float | None = None
+                t_first_content_token: float | None = None
                 t_last_chunk = t_start
                 t_last_activity = t_start
                 got_done = False
@@ -176,16 +182,19 @@ class LLMEvalAdapter:
                 content_filtered = False
                 final_finish_reason = ""
                 chunk_count = 0
+                reasoning_field = thinking_cfg.get("reasoning_field", "reasoning_content")
 
                 with resp:
                     for line in resp.iter_lines(decode_unicode=True):
                         if not line:
                             continue
-                        if not line.startswith("data: "):
-                            logger.debug(f"[{model}] 非 SSE 数据行: {line[:100]}")
+                        if not line.startswith("data:"):
                             continue
 
-                        data_str = line[6:]
+                        # 兼容 "data:" 和 "data: " 两种 SSE 格式
+                        data_str = line[5:]
+                        if data_str.startswith(" "):
+                            data_str = data_str[1:]
                         chunk_count += 1
 
                         # 检测流空闲超时（至少收到 1 个 chunk 后才开始检测，
@@ -206,7 +215,7 @@ class LLMEvalAdapter:
                             logger.debug(
                                 f"[{model}] 收到 [DONE] 标记，流结束 "
                                 f"(共 {chunk_count} chunks, "
-                                f"content 片段: {len(content_parts)})"
+                                f"reasoning 片段: {len(reasoning_parts)}, content 片段: {len(content_parts)})"
                             )
                             got_done = True
                             break
@@ -225,23 +234,35 @@ class LLMEvalAdapter:
                         if chunk_count % 50 == 0:
                             logger.debug(
                                 f"[{model}] 流进度: chunk#{chunk_count}, "
-                                f"已收集 {len(content_parts)} 个 content 片段, "
+                                f"reasoning 片段: {len(reasoning_parts)}, "
+                                f"content 片段: {len(content_parts)}, "
                                 f"已耗时 {(time.monotonic() - t_start):.1f}s"
                             )
 
                         choices = chunk.get("choices", [])
                         if choices:
                             delta = choices[0].get("delta", {})
+                            delta_reasoning = delta.get(reasoning_field)
                             delta_content = delta.get("content")
-                            if delta_content:
-                                content_parts.append(delta_content)
+                            if delta_reasoning:
+                                reasoning_parts.append(delta_reasoning)
                                 t_last_chunk = time.monotonic()
+                                t_last_activity = t_last_chunk
                                 if t_first_token is None:
                                     t_first_token = t_last_chunk
                                     logger.debug(
-                                        f"[{model}] 首 token 延迟: "
-                                        f"{(t_first_token - t_start):.3f}s, "
-                                        f"首内容: {repr(delta_content[:100])}"
+                                        f"[{model}] 首 reasoning token 延迟: "
+                                        f"{(t_first_token - t_start):.3f}s"
+                                    )
+                            if delta_content:
+                                content_parts.append(delta_content)
+                                t_last_chunk = time.monotonic()
+                                t_last_activity = t_last_chunk
+                                if t_first_content_token is None:
+                                    t_first_content_token = t_last_chunk
+                                    logger.debug(
+                                        f"[{model}] 首 content token 延迟: "
+                                        f"{(t_first_content_token - t_start):.3f}s"
                                     )
 
                             # finish_reason 语义区分
@@ -281,7 +302,7 @@ class LLMEvalAdapter:
                     f"got_done={got_done}, truncated={truncated}, "
                     f"content_filtered={content_filtered}, "
                     f"finish_reason='{final_finish_reason}', "
-                    f"content 长度={len(''.join(content_parts))}"
+                    f"reasoning 长度={len(''.join(reasoning_parts))}, content 长度={len(''.join(content_parts))}"
                 )
 
                 # 允许没有 [DONE] 标记的情况，只要成功解析了响应内容
@@ -292,6 +313,7 @@ class LLMEvalAdapter:
                     )
 
                 full_content = "".join(content_parts)
+                full_reasoning = "".join(reasoning_parts)
 
                 # 内容被安全过滤 — 不重试，直接返回标记
                 if content_filtered:
@@ -346,11 +368,14 @@ class LLMEvalAdapter:
 
                 return GenerateResponse(
                     content=full_content,
+                    reasoning_content=full_reasoning,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
+                    reasoning_tokens=usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0),
                     duration=duration,
                     tokens_per_second=tokens_per_second,
                     ttft=ttft,
+                    ttft_content=t_first_content_token - t_start if t_first_content_token else 0.0,
                     truncated=truncated,
                     finish_reason=final_finish_reason,
                 )
@@ -486,6 +511,10 @@ class LLMEvalAdapter:
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        # 注入模型级 thinking 参数（如 MiniMax 的 reasoning_split）
+        thinking_cfg = cfg.get("thinking", {})
+        if thinking_cfg.get("enabled") and thinking_cfg.get("request_params"):
+            payload.update(thinking_cfg["request_params"])
 
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
@@ -513,10 +542,12 @@ class LLMEvalAdapter:
                             f"content-type: {resp.headers.get('content-type', 'N/A')}"
                         )
 
+                        reasoning_parts: list[str] = []
                         content_parts: list[str] = []
                         usage: dict[str, Any] = {}
                         t_start = time.monotonic()
                         t_first_token: float | None = None
+                        t_first_content_token: float | None = None
                         t_last_chunk = t_start
                         t_last_activity = t_start
                         got_done = False
@@ -524,15 +555,18 @@ class LLMEvalAdapter:
                         content_filtered = False
                         final_finish_reason = ""
                         chunk_count = 0
+                        reasoning_field = thinking_cfg.get("reasoning_field", "reasoning_content")
 
                         async for line in resp.aiter_lines():
                             if not line:
                                 continue
-                            if not line.startswith("data: "):
-                                logger.debug(f"[{model}] 非 SSE 数据行: {line[:100]}")
+                            if not line.startswith("data:"):
                                 continue
 
-                            data_str = line[6:]
+                            # 兼容 "data:" 和 "data: " 两种 SSE 格式
+                            data_str = line[5:]
+                            if data_str.startswith(" "):
+                                data_str = data_str[1:]
                             chunk_count += 1
 
                             now = time.monotonic()
@@ -551,7 +585,7 @@ class LLMEvalAdapter:
                                 logger.debug(
                                     f"[{model}] 收到 [DONE] 标记，流结束 "
                                     f"(共 {chunk_count} chunks, "
-                                    f"content 片段: {len(content_parts)})"
+                                    f"reasoning 片段: {len(reasoning_parts)}, content 片段: {len(content_parts)})"
                                 )
                                 got_done = True
                                 break
@@ -568,7 +602,8 @@ class LLMEvalAdapter:
                             if chunk_count % 50 == 0:
                                 logger.debug(
                                     f"[{model}] 流进度: chunk#{chunk_count}, "
-                                    f"已收集 {len(content_parts)} 个 content 片段, "
+                                    f"reasoning 片段: {len(reasoning_parts)}, "
+                                    f"content 片段: {len(content_parts)}, "
                                     f"已耗时 {(time.monotonic() - t_start):.1f}s"
                                 )
 
@@ -586,16 +621,27 @@ class LLMEvalAdapter:
                             choices = chunk.get("choices", [])
                             if choices:
                                 delta = choices[0].get("delta", {})
+                                delta_reasoning = delta.get(reasoning_field)
                                 delta_content = delta.get("content")
-                                if delta_content:
-                                    content_parts.append(delta_content)
+                                if delta_reasoning:
+                                    reasoning_parts.append(delta_reasoning)
                                     t_last_chunk = time.monotonic()
+                                    t_last_activity = t_last_chunk
                                     if t_first_token is None:
                                         t_first_token = t_last_chunk
                                         logger.debug(
-                                            f"[{model}] 首 token 延迟: "
-                                            f"{(t_first_token - t_start):.3f}s, "
-                                            f"首内容: {repr(delta_content[:100])}"
+                                            f"[{model}] 首 reasoning token 延迟: "
+                                            f"{(t_first_token - t_start):.3f}s"
+                                        )
+                                if delta_content:
+                                    content_parts.append(delta_content)
+                                    t_last_chunk = time.monotonic()
+                                    t_last_activity = t_last_chunk
+                                    if t_first_content_token is None:
+                                        t_first_content_token = t_last_chunk
+                                        logger.debug(
+                                            f"[{model}] 首 content token 延迟: "
+                                            f"{(t_first_content_token - t_start):.3f}s"
                                         )
 
                                 finish_reason = choices[0].get("finish_reason")
@@ -634,7 +680,7 @@ class LLMEvalAdapter:
                     f"got_done={got_done}, truncated={truncated}, "
                     f"content_filtered={content_filtered}, "
                     f"finish_reason='{final_finish_reason}', "
-                    f"content 长度={len(''.join(content_parts))}"
+                    f"reasoning 长度={len(''.join(reasoning_parts))}, content 长度={len(''.join(content_parts))}"
                 )
 
                 if not got_done:
@@ -643,6 +689,7 @@ class LLMEvalAdapter:
                     )
 
                 full_content = "".join(content_parts)
+                full_reasoning = "".join(reasoning_parts)
 
                 if content_filtered:
                     logger.warning(f"[{model}] 内容被安全过滤，跳过重试，返回标记")
@@ -695,11 +742,14 @@ class LLMEvalAdapter:
 
                 return GenerateResponse(
                     content=full_content,
+                    reasoning_content=full_reasoning,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
+                    reasoning_tokens=usage.get("completion_tokens_details", {}).get("reasoning_tokens", 0),
                     duration=duration,
                     tokens_per_second=tokens_per_second,
                     ttft=ttft,
+                    ttft_content=t_first_content_token - t_start if t_first_content_token else 0.0,
                     truncated=truncated,
                     finish_reason=final_finish_reason,
                 )
