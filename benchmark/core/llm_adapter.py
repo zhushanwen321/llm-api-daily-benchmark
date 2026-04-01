@@ -129,9 +129,8 @@ class LLMEvalAdapter:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        # 所有请求携带 OpenCode User-Agent
-        oc_ver = os.getenv("OPENCODE_VERSION", "1.3.13")
-        headers["User-Agent"] = f"opencode/latest/{oc_ver}/cli"
+        # 部分 provider（如 Kimi Coding Plan）校验 User-Agent 白名单
+        headers["User-Agent"] = os.getenv("LLM_USER_AGENT", "claude-code/1.0.0")
         payload: dict[str, Any] = {
             "model": model.split("/", 1)[1] if "/" in model else model,
             "messages": [{"role": "user", "content": prompt}],
@@ -477,8 +476,8 @@ class LLMEvalAdapter:
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        oc_ver = os.getenv("OPENCODE_VERSION", "1.3.13")
-        headers["User-Agent"] = f"opencode/latest/{oc_ver}/cli"
+        # 部分 provider（如 Kimi Coding Plan）校验 User-Agent 白名单
+        headers["User-Agent"] = os.getenv("LLM_USER_AGENT", "claude-code/1.0.0")
         payload: dict[str, Any] = {
             "model": model.split("/", 1)[1] if "/" in model else model,
             "messages": [{"role": "user", "content": prompt}],
