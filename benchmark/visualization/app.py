@@ -11,7 +11,13 @@ DB_PATH = "benchmark/data/results.db"
 
 @st.cache_resource
 def get_connection() -> sqlite3.Connection:
-    """获取 SQLite 连接（缓存）."""
+    """获取 SQLite 连接（缓存）.
+
+    先通过 Database 类触发迁移（确保 schema 最新），再返回原生连接.
+    """
+    from benchmark.models.database import Database
+
+    Database().close()  # 触发 schema 迁移
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn

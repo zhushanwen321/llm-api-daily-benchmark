@@ -245,6 +245,13 @@ class LLMEvalAdapter:
                             delta_reasoning = delta.get(reasoning_field)
                             delta_content = delta.get("content")
                             if delta_reasoning:
+                                # MiniMax reasoning_details 返回 list，统一转 str
+                                if isinstance(delta_reasoning, list):
+                                    delta_reasoning = "".join(
+                                        str(r) for r in delta_reasoning
+                                    )
+                                elif not isinstance(delta_reasoning, str):
+                                    delta_reasoning = str(delta_reasoning)
                                 reasoning_parts.append(delta_reasoning)
                                 t_last_chunk = time.monotonic()
                                 t_last_activity = t_last_chunk
@@ -624,6 +631,13 @@ class LLMEvalAdapter:
                                 delta_reasoning = delta.get(reasoning_field)
                                 delta_content = delta.get("content")
                                 if delta_reasoning:
+                                    # MiniMax reasoning_details 返回 list，统一转 str
+                                    if isinstance(delta_reasoning, list):
+                                        delta_reasoning = "".join(
+                                            str(r) for r in delta_reasoning
+                                        )
+                                    elif not isinstance(delta_reasoning, str):
+                                        delta_reasoning = str(delta_reasoning)
                                     reasoning_parts.append(delta_reasoning)
                                     t_last_chunk = time.monotonic()
                                     t_last_activity = t_last_chunk
