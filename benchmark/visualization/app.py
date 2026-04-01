@@ -42,9 +42,13 @@ def get_results_df(
             r.final_score,
             r.passed,
             r.execution_time,
+            m.tokens_per_second,
+            m.prompt_tokens,
+            m.completion_tokens,
             r.created_at
         FROM eval_results r
         JOIN eval_runs e ON r.run_id = e.run_id
+        LEFT JOIN api_call_metrics m ON r.result_id = m.result_id
         WHERE 1=1
     """
     params: list[str] = []
@@ -109,6 +113,10 @@ def main() -> None:
     display_df["execution_time"] = (
         display_df["execution_time"].round(2).astype(str) + "s"
     )
+    display_df["tokens_per_second"] = display_df["tokens_per_second"].apply(
+        lambda x: f"{x:.1f} tok/s" if pd.notna(x) else "-"
+    )
+    display_df = display_df.drop(columns=["prompt_tokens", "completion_tokens"])
     display_df.columns = [
         "ID",
         "Model",
@@ -117,6 +125,7 @@ def main() -> None:
         "Score",
         "Passed",
         "Time",
+        "Token Speed",
         "Date",
     ]
 
@@ -134,6 +143,26 @@ def main() -> None:
                 st.metric("Score", f"{detail['final_score']:.1f}")
                 st.metric("Passed", "Yes" if detail["passed"] else "No")
                 st.metric("Execution Time", f"{detail['execution_time']:.2f}s")
+
+                # 查询 token 指标
+                metrics_row = conn.execute(
+                    "SELECT * FROM api_call_metrics WHERE result_id = ?",
+                    (selected_result,),
+                ).fetchone()
+                if metrics_row:
+                    cols = [d[0] for d in conn.execute(
+                        "SELECT * FROM api_call_metrics WHERE result_id = ?",
+                        (selected_result,),
+                    ).description]
+                    metrics = dict(zip(cols, metrics_row))
+                    st.metric(
+                        "Token Speed",
+                        f"{metrics['tokens_per_second']:.1f} tok/s",
+                    )
+                    st.metric(
+                        "Tokens",
+                        f"{metrics['prompt_tokens']} in / {metrics['completion_tokens']} out",
+                    )
 
             with col2:
                 st.text_area(
