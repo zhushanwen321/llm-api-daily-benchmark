@@ -38,6 +38,8 @@ class GenerateResponse(BaseModel):
     duration: float = 0.0
     tokens_per_second: float = 0.0
     ttft: float = 0.0
+    truncated: bool = False
+    finish_reason: str = ""
 
 
 class EvalRun(BaseModel):
