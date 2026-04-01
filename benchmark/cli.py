@@ -21,6 +21,7 @@ from benchmark.adapters.bigcodebench_adapter import BigCodeBenchAdapter
 from benchmark.adapters.gsm8k_adapter import GSM8KAdapter
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.core.logging_config import setup_logging
+from benchmark.core.response_parser import parse_response
 from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.execution_scorer import ExecutionScorer
@@ -122,7 +123,17 @@ async def _evaluate_task(
         if debug:
             logger.debug(f"模型输出:\n{model_output[:500]}...")
 
-        score_result = scorer.score(model_output, task.expected_output, task)
+        # 推理内容直接从 API 层获取（adapter 已分离）
+        think_content = gen_response.reasoning_content
+
+        # 从 content 中解析最终答案
+        parsed = parse_response(model_output, task.dimension)
+        logger.debug(
+            f"任务 {task.task_id} 解析完成: think_len={len(think_content)}, answer_len={len(parsed.answer)}"
+        )
+
+        # 使用解析后的 answer 进行评分
+        score_result = scorer.score(parsed.answer, task.expected_output, task)
         logger.debug(
             f"任务 {task.task_id} 评分结果: score={score_result.score}, passed={score_result.passed}"
         )
@@ -134,6 +145,8 @@ async def _evaluate_task(
             task_id=task.task_id,
             task_content=task.prompt,
             model_output=model_output,
+            model_think=think_content,
+            model_answer=parsed.answer,
             functional_score=score_result.score,
             final_score=score_result.score,
             passed=score_result.passed,
@@ -157,8 +170,11 @@ async def _evaluate_task(
                 result_id=result_id,
                 prompt_tokens=gen_response.prompt_tokens,
                 completion_tokens=gen_response.completion_tokens,
+                reasoning_tokens=gen_response.reasoning_tokens,
+                reasoning_content=gen_response.reasoning_content,
                 duration=gen_response.duration,
                 tokens_per_second=tps,
+                ttft_content=gen_response.ttft_content,
                 created_at=datetime.now(),
             )
         )
@@ -170,7 +186,8 @@ async def _evaluate_task(
             f"  [{task_idx + 1}/{total}] {task.task_id} | "
             f"Score: {score_result.score:.0f} | {status_icon} | "
             f"Time: {execution_time:.1f}s | "
-            f"TTFT: {gen_response.ttft:.2f}s | "
+            f"TTFT-R: {gen_response.ttft:.2f}s | "
+            f"TTFT-C: {gen_response.ttft_content:.2f}s | "
             f"Speed: {tps:.1f} tok/s"
         )
 
