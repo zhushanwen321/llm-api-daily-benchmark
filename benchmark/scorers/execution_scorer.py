@@ -28,6 +28,15 @@ class ExecutionScorer(BaseScorer):
         expected: str,  # noqa: ARG002 — 基类接口要求
         task: TaskDefinition,
     ) -> ScoreResult:
+        # 模型输出为空时直接判 0 分，避免仅执行测试代码意外通过
+        if not model_output.strip():
+            return ScoreResult(
+                score=0.0,
+                passed=False,
+                details={"error": "Empty model output"},
+                reasoning="Model produced no code",
+            )
+
         test_code = task.metadata.get("test", "")
         entry_point = task.metadata.get("entry_point", "")
 

@@ -12,7 +12,7 @@ DB_PATH = "benchmark/data/results.db"
 @st.cache_resource
 def get_connection() -> sqlite3.Connection:
     """获取 SQLite 连接（缓存）."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -120,7 +120,7 @@ def main() -> None:
         "Date",
     ]
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
     st.subheader("Result Detail")
     result_ids = df["result_id"].tolist()
