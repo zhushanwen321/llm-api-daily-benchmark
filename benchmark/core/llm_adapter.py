@@ -72,7 +72,7 @@ class LLMEvalAdapter:
         prompt: str,
         model: str,
         temperature: float = 0.0,
-        max_tokens: int = 4096,
+        max_tokens: int | None = None,
     ) -> GenerateResponse:
         """调用 LLM 生成文本.
 
@@ -80,7 +80,7 @@ class LLMEvalAdapter:
             prompt: 输入提示.
             model: 模型标识（provider/model 格式）.
             temperature: 温度参数（评测时固定为 0）.
-            max_tokens: 最大输出 token 数.
+            max_tokens: 最大输出 token 数，None 时使用模型配置值。
 
         Returns:
             GenerateResponse 对象，包含生成文本和 token 用量.
@@ -92,7 +92,13 @@ class LLMEvalAdapter:
         cfg = self._get_model_config(model)
         api_key = cfg["api_key"]
         api_base = cfg["api_base"].rstrip("/")
-        model_max_tokens = cfg.get("max_tokens", max_tokens)
+        # max_tokens 优先级: 调用方显式指定 > models.yaml 配置 > 兜底默认值
+        model_max_tokens = cfg.get("max_tokens", _DEFAULT_MAX_TOKENS)
+        effective_max_tokens = (
+            min(max_tokens, model_max_tokens)
+            if max_tokens is not None
+            else model_max_tokens
+        )
 
         # 限流
         if self._limiter is not None:
@@ -111,7 +117,7 @@ class LLMEvalAdapter:
             "model": model.split("/", 1)[1] if "/" in model else model,
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
-            "max_tokens": min(max_tokens, model_max_tokens),
+            "max_tokens": effective_max_tokens,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
