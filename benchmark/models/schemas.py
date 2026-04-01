@@ -35,6 +35,9 @@ class GenerateResponse(BaseModel):
     content: str
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    duration: float = 0.0
+    tokens_per_second: float = 0.0
+    ttft: float = 0.0
 
 
 class EvalRun(BaseModel):

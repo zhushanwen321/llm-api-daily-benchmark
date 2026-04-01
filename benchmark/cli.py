@@ -125,18 +125,21 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
                 )
                 db.save_result(result)
 
-                # 计算 token 速度并记录
                 tps = (
-                    gen_response.completion_tokens / execution_time
-                    if execution_time > 0
-                    else 0.0
+                    gen_response.tokens_per_second
+                    if gen_response.tokens_per_second > 0
+                    else (
+                        gen_response.completion_tokens / execution_time
+                        if execution_time > 0
+                        else 0.0
+                    )
                 )
                 db.save_metrics(
                     ApiCallMetrics(
                         result_id=result_id,
                         prompt_tokens=gen_response.prompt_tokens,
                         completion_tokens=gen_response.completion_tokens,
-                        duration=execution_time,
+                        duration=gen_response.duration,
                         tokens_per_second=tps,
                         created_at=datetime.now(),
                     )
@@ -153,6 +156,7 @@ def evaluate(model: str, dimension: str, samples: int) -> None:
                     f"  [{i}/{len(tasks)}] {task.task_id} | "
                     f"Score: {score_result.score:.0f} | {status_icon} | "
                     f"Time: {execution_time:.1f}s | "
+                    f"TTFT: {gen_response.ttft:.2f}s | "
                     f"Speed: {tps:.1f} tok/s"
                 )
                 progress.advance(task_progress)

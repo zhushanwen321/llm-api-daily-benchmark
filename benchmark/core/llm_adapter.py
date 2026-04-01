@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import time
 from typing import Any
 
 import requests
+from requests.exceptions import (
+    ChunkedEncodingError,
+    ConnectionError as RequestsConnectionError,
+)
 
 from benchmark.config import get_model_config
 from benchmark.models.schemas import GenerateResponse
@@ -91,7 +96,11 @@ class LLMEvalAdapter:
         if self._limiter is not None:
             self._limiter.acquire()
 
-        url = f"{api_base}/chat/completions"
+        # 兼容 api_base 已包含路径结尾的情况
+        if api_base.endswith("/chat/completions") or api_base.endswith("/messages"):
+            url = api_base
+        else:
+            url = f"{api_base}/chat/completions"
         headers = {
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
@@ -101,6 +110,8 @@ class LLMEvalAdapter:
             "messages": [{"role": "user", "content": prompt}],
             "temperature": temperature,
             "max_tokens": min(max_tokens, model_max_tokens),
+            "stream": True,
+            "stream_options": {"include_usage": True},
         }
 
         last_error: Exception | None = None
@@ -110,19 +121,81 @@ class LLMEvalAdapter:
                     url,
                     headers=headers,
                     json=payload,
-                    timeout=self.timeout,
+                    timeout=(30, self.timeout),
+                    stream=True,
                 )
                 resp.raise_for_status()
-                data = resp.json()
-                content = data["choices"][0]["message"]["content"]
-                usage = data.get("usage", {})
+
+                content_parts: list[str] = []
+                usage: dict[str, Any] = {}
+                t_start = time.monotonic()
+                t_first_token: float | None = None
+                t_last_chunk = t_start
+                got_done = False
+
+                with resp:
+                    for line in resp.iter_lines(decode_unicode=True):
+                        if not line:
+                            continue
+                        if not line.startswith("data: "):
+                            continue
+
+                        data_str = line[6:]
+
+                        if data_str == "[DONE]":
+                            got_done = True
+                            break
+
+                        try:
+                            chunk = json.loads(data_str)
+                        except json.JSONDecodeError as exc:
+                            logger.warning(
+                                f"Failed to parse SSE chunk: {exc}, data: {data_str}"
+                            )
+                            continue
+
+                        choices = chunk.get("choices", [])
+                        if choices:
+                            delta = choices[0].get("delta", {})
+                            delta_content = delta.get("content")
+                            if delta_content:
+                                content_parts.append(delta_content)
+                                t_last_chunk = time.monotonic()
+                                if t_first_token is None:
+                                    t_first_token = t_last_chunk
+
+                        chunk_usage = chunk.get("usage")
+                        if chunk_usage:
+                            usage = chunk_usage
+
+                if not got_done:
+                    raise ConnectionError("Stream ended without [DONE] marker")
+
+                full_content = "".join(content_parts)
+                duration = t_last_chunk - t_start
+                ttft = t_first_token - t_start if t_first_token else 0.0
+
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
+
+                tokens_per_second = 0.0
+                if duration > 0 and completion_tokens > 0:
+                    tokens_per_second = completion_tokens / duration
+
                 return GenerateResponse(
-                    content=content,
-                    prompt_tokens=usage.get("prompt_tokens", 0),
-                    completion_tokens=usage.get("completion_tokens", 0),
+                    content=full_content,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    duration=duration,
+                    tokens_per_second=tokens_per_second,
+                    ttft=ttft,
                 )
 
-            except requests.exceptions.RequestException as exc:
+            except (
+                requests.exceptions.RequestException,
+                RequestsConnectionError,
+                ChunkedEncodingError,
+            ) as exc:
                 last_error = exc
                 if attempt < self.max_retries - 1:
                     # 429 限频用更长退避，其他错误用标准退避
@@ -132,7 +205,11 @@ class LLMEvalAdapter:
                         and exc.response.status_code == 429
                     )
                     base = 10 if is_rate_limited else 2
-                    wait = min(base * 2**attempt, 120)
+                    wait = min(base * (2**attempt), 120)
+                    logger.warning(
+                        f"Attempt {attempt + 1}/{self.max_retries} failed for model '{model}': "
+                        f"{exc}. Retrying in {wait}s..."
+                    )
                     time.sleep(wait)
 
         raise ConnectionError(
