@@ -96,4 +96,5 @@ def get_model_config(model_name: str, models_path: str | Path | None = None) -> 
         "api_base": provider_cfg["api_base"],
         "max_tokens": model_cfg.get("max_tokens", default_max_tokens),
         "rate_limit": float(provider_cfg["rate_limit"]) if "rate_limit" in provider_cfg else None,
+        "thinking": model_cfg.get("thinking", {}),
     }
