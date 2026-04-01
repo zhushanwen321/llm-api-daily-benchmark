@@ -35,6 +35,7 @@ providers:
   glm:
     api_key: "你的API Key"
     api_base: "https://open.bigmodel.cn/api/paas/v4/"
+    rate_limit: 2
     models:
       glm-4.7:
         max_tokens: 4096
@@ -88,13 +89,13 @@ uv run python -m benchmark list-datasets
 
 ```bash
 # 数学推理（GSM8K 最难5题）
-uv run python -m benchmark evaluate --model glm-4.7 --dimension reasoning
+uv run python -m benchmark evaluate --model glm/glm-4.7 --dimension reasoning
 
 # 代码生成（BigCodeBench-Hard 随机5题）
-uv run python -m benchmark evaluate --model glm-4.7 --dimension backend-dev
+uv run python -m benchmark evaluate --model glm/glm-4.7 --dimension backend-dev
 
 # 指定题目数量
-uv run python -m benchmark evaluate --model glm-4.7 --dimension reasoning --samples 3
+uv run python -m benchmark evaluate --model glm/glm-4.7 --dimension reasoning --samples 3
 ```
 
 评测完成后结果自动保存到 `benchmark/data/results.db`（SQLite）。
@@ -106,7 +107,7 @@ uv run python -m benchmark evaluate --model glm-4.7 --dimension reasoning --samp
 uv run python -m benchmark export --format json --output results.json
 
 # 导出为 CSV，按模型过滤
-uv run python -m benchmark export --format csv --output results.csv --model glm-4.7
+uv run python -m benchmark export --format csv --output results.csv --model glm/glm-4.7
 ```
 
 ## 可视化
@@ -142,7 +143,7 @@ providers:
 然后运行：
 
 ```bash
-uv run python -m benchmark evaluate --model my-model --dimension reasoning
+uv run python -m benchmark evaluate --model my-provider/my-model --dimension reasoning
 ```
 
 ## 项目结构
@@ -158,7 +159,8 @@ benchmark/
 │   ├── exact_match_scorer.py  # 数值精确匹配
 │   └── execution_scorer.py    # 代码执行验证
 ├── core/
-│   └── llm_adapter.py         # LLM API 调用（OpenAI 兼容）
+│   ├── llm_adapter.py         # LLM API 调用（OpenAI 兼容）
+│   └── rate_limiter.py        # provider 级令牌桶限流
 ├── models/
 │   ├── schemas.py             # 数据模型（Pydantic）
 │   └── database.py            # SQLite 存储
