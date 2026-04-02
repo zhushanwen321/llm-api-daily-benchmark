@@ -1,0 +1,34 @@
+{
+  "tasks": [
+    {
+      "id": "frontcode_html_1",
+      "type": "html",
+      "prompt": "Create a semantic HTML structure for a blog post page. Include: a header with navigation, a main article area with heading and paragraphs, and a footer with copyright.",
+      "keywords": ["header", "nav", "main", "article", "h1", "footer"]
+    },
+    {
+      "id": "frontcode_css_1",
+      "type": "css",
+      "prompt": "Write CSS to create a responsive card layout with: white background, subtle shadow, rounded corners (8px), padding (20px), and flexbox center alignment for content.",
+      "keywords": ["background", "box-shadow", "border-radius", "padding", "display", "flex", "justify-content", "align-items"]
+    },
+    {
+      "id": "frontcode_js_1",
+      "type": "javascript",
+      "prompt": "Write JavaScript to implement a debounce function that takes a function and delay (ms), returns a debounced version that only executes after delay milliseconds have passed since the last invocation.",
+      "keywords": ["function", "setTimeout", "clearTimeout", "return", "arguments"]
+    },
+    {
+      "id": "frontcode_react_1",
+      "type": "react",
+      "prompt": "Create a React functional component called 'Button' that accepts: children (for label), onClick (callback), and variant ('primary' | 'secondary' props. Use Tailwind CSS classes for styling.",
+      "keywords": ["React", "useState", "props", "onClick", "children", "variant"]
+    },
+    {
+      "id": "frontcode_complex_1",
+      "type": "complex",
+      "prompt": "Build a complete Todo List component with: add task input, delete button for each item, and checkbox to toggle completion. Use React hooks (useState) and include basic CSS styling.",
+      "keywords": ["useState", "map", "filter", "onChange", "onClick", "checkbox", "input"]
+    }
+  ]
+}

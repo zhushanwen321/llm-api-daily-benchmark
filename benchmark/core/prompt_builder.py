@@ -23,9 +23,19 @@ _BACKEND_DEV_SCHEMA = {
     },
 }
 
+_FRONTEND_DEV_SCHEMA = {
+    "example": {
+        "code": "<html>\n<!-- or CSS/JS/React code -->\n...",
+    },
+    "fields": {
+        "code": "（字符串）完整的前端代码（HTML/CSS/JavaScript/React），不包含 markdown 标记",
+    },
+}
+
 _SCHEMAS = {
     "reasoning": _REASONING_SCHEMA,
     "backend-dev": _BACKEND_DEV_SCHEMA,
+    "frontend-dev": _FRONTEND_DEV_SCHEMA,
 }
 
 

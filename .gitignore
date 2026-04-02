@@ -12,7 +12,10 @@ benchmark/configs/models.yaml
 
 # 数据和日志
 benchmark/data/*.db
-benchmark/datasets/*/
+# 忽略下载数据集缓存，但保留自建数据集的 JSON 文件
+benchmark/datasets/gsm8k/
+benchmark/datasets/bigcodebench/
+benchmark/datasets/mmlu/
 benchmark/logs/*.log
 
 # IDE
