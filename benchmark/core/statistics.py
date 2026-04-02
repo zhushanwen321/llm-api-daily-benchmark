@@ -51,19 +51,18 @@ def calculate_confidence_interval(
 
     Args:
         scores: 分数列表.
-        confidence: 置信水平（默认0.95）.
+        confidence: 置信水平（默认0.95），必须在(0, 1)范围内.
 
     Returns:
         (lower_bound, upper_bound).
 
     Raises:
-        ValueError: 列表为空或只有一个元素时.
+        ValueError: 列表为空或只有一个元素时，或confidence不在(0, 1)范围内.
     """
     if len(scores) < 2:
         raise ValueError("Cannot calculate CI with less than 2 samples")
-
-    import scipy.stats
-    from statistics import mean, stdev
+    if not (0 < confidence < 1):
+        raise ValueError("confidence must be between 0 and 1 (exclusive)")
 
     n = len(scores)
     sample_mean = mean(scores)
