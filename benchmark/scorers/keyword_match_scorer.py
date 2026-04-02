@@ -18,18 +18,15 @@ class KeywordMatchScorer(BaseScorer):
 
     def __init__(
         self,
-        keywords: List[str],
         use_regex: bool = False,
         case_sensitive: bool = False
     ):
         """初始化评分器.
 
         Args:
-            keywords: 关键词列表或正则表达式列表.
             use_regex: 是否使用正则表达式匹配.
             case_sensitive: 是否区分大小写.
         """
-        self.keywords = keywords
         self.use_regex = use_regex
         self.case_sensitive = case_sensitive
 
@@ -37,7 +34,7 @@ class KeywordMatchScorer(BaseScorer):
         self,
         model_output: str,
         expected: str,  # noqa: ARG002 — 未使用
-        task: TaskDefinition,  # noqa: ARG002 — 未使用
+        task: TaskDefinition,
     ) -> ScoreResult:
         """对模型输出进行评分.
 
@@ -49,7 +46,8 @@ class KeywordMatchScorer(BaseScorer):
         Returns:
             ScoreResult 包含分数、是否通过、详情.
         """
-        if not self.keywords:
+        keywords: List[str] = task.metadata.get("keywords", [])
+        if not keywords:
             return ScoreResult(
                 score=0.0,
                 passed=False,
@@ -61,7 +59,7 @@ class KeywordMatchScorer(BaseScorer):
         matched = []
         matched_indices = []
 
-        for idx, keyword in enumerate(self.keywords):
+        for idx, keyword in enumerate(keywords):
             search_keyword = keyword if self.case_sensitive else keyword.lower()
 
             if self.use_regex:
@@ -73,7 +71,7 @@ class KeywordMatchScorer(BaseScorer):
                     matched.append(keyword)
                     matched_indices.append(idx)
 
-        score = len(matched) / len(self.keywords) * 100
+        score = len(matched) / len(keywords) * 100
         passed = score >= 50.0  # 至少匹配50%才算通过
 
         return ScoreResult(
@@ -82,10 +80,10 @@ class KeywordMatchScorer(BaseScorer):
             details={
                 "matched": matched,
                 "matched_indices": matched_indices,
-                "total_keywords": len(self.keywords),
-                "match_rate": f"{len(matched)}/{len(self.keywords)}"
+                "total_keywords": len(keywords),
+                "match_rate": f"{len(matched)}/{len(keywords)}"
             },
-            reasoning=f"Matched {len(matched)}/{len(self.keywords)} keywords: {matched}"
+            reasoning=f"Matched {len(matched)}/{len(keywords)} keywords: {matched}"
         )
 
     def get_metric_name(self) -> str:
