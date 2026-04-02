@@ -23,6 +23,12 @@ benchmark/logs/*.log
 # 环境变量（代理等）
 .env
 
+# 运行时日志（项目根目录）
+logs/
+
+# Sisyphus 工具状态
+.sisyphus/
+
 # OS
 .DS_Store
 Thumbs.db
