@@ -26,6 +26,7 @@ from benchmark.core.logging_config import setup_logging
 from benchmark.core.response_parser import parse_response
 from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
+from benchmark.scorers.choice_match_scorer import ChoiceMatchScorer
 from benchmark.scorers.execution_scorer import ExecutionScorer
 from benchmark.scorers.exact_match_scorer import ExactMatchScorer
 from benchmark.scorers.keyword_match_scorer import KeywordMatchScorer
@@ -36,7 +37,7 @@ logger = logging.getLogger(__name__)
 DIMENSION_REGISTRY: dict[str, tuple] = {
     "reasoning": (GSM8KAdapter, ExactMatchScorer),
     "backend-dev": (BigCodeBenchAdapter, ExecutionScorer),
-    "system-architecture": (MMLUAdapter, ExactMatchScorer),
+    "system-architecture": (MMLUAdapter, ChoiceMatchScorer),
     "frontend-dev": (FrontCodeAdapter, KeywordMatchScorer),
 }
 
