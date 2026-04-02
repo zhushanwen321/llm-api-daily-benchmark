@@ -245,11 +245,15 @@ class LLMEvalAdapter:
                             delta_reasoning = delta.get(reasoning_field)
                             delta_content = delta.get("content")
                             if delta_reasoning:
-                                # MiniMax reasoning_details 返回 list，统一转 str
+                                # MiniMax reasoning_details 返回 list[dict]，提取 text 字段
                                 if isinstance(delta_reasoning, list):
-                                    delta_reasoning = "".join(
-                                        str(r) for r in delta_reasoning
-                                    )
+                                    parts = []
+                                    for r in delta_reasoning:
+                                        if isinstance(r, dict):
+                                            parts.append(r.get("text", str(r)))
+                                        else:
+                                            parts.append(str(r))
+                                    delta_reasoning = "".join(parts)
                                 elif not isinstance(delta_reasoning, str):
                                     delta_reasoning = str(delta_reasoning)
                                 reasoning_parts.append(delta_reasoning)
@@ -631,11 +635,15 @@ class LLMEvalAdapter:
                                 delta_reasoning = delta.get(reasoning_field)
                                 delta_content = delta.get("content")
                                 if delta_reasoning:
-                                    # MiniMax reasoning_details 返回 list，统一转 str
+                                    # MiniMax reasoning_details 返回 list[dict]，提取 text 字段
                                     if isinstance(delta_reasoning, list):
-                                        delta_reasoning = "".join(
-                                            str(r) for r in delta_reasoning
-                                        )
+                                        parts = []
+                                        for r in delta_reasoning:
+                                            if isinstance(r, dict):
+                                                parts.append(r.get("text", str(r)))
+                                            else:
+                                                parts.append(str(r))
+                                        delta_reasoning = "".join(parts)
                                     elif not isinstance(delta_reasoning, str):
                                         delta_reasoning = str(delta_reasoning)
                                     reasoning_parts.append(delta_reasoning)
