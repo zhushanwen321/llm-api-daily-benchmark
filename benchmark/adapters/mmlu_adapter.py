@@ -21,7 +21,7 @@ class MMLUAdapter(DatasetAdapter):
         Args:
             subjects: 学科列表. 默认为 ["computer_science", "abstract_algebra"].
         """
-        self.subjects = subjects or ["computer_science", "abstract_algebra"]
+        self.subjects = subjects or ["college_computer_science", "abstract_algebra"]
 
     def load(self, path: str = "") -> List[TaskDefinition]:
         """加载 MMLU 题目.

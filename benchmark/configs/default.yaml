@@ -22,7 +22,7 @@ dimensions:
 
   system-architecture:
     adapter: "mmlu"
-    subjects: ["computer_science", "abstract_algebra"]
+    subjects: ["college_computer_science", "abstract_algebra"]
     auto_weight: 0.8
     judge_weight: 0.2
 
