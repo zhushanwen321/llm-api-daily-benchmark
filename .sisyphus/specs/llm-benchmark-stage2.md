@@ -1,11 +1,12 @@
 # LLM Benchmark - Stage 2 规格概要
 
-**阶段**: 自动化 + 增强  
-**版本**: 1.0  
-**创建日期**: 2026-03-31  
-**状态**: 规划中  
-**前置条件**: Stage 1 完成并验收  
-**估算工作量**: 17-23 小时
+**阶段**: 可视化增强 + 新维度
+**版本**: 1.1
+**创建日期**: 2026-03-31
+**更新日期**: 2026-04-02
+**状态**: 规划中
+**前置条件**: Stage 1 完成并验收
+**估算工作量**: 12-18 小时
 
 ---
 
@@ -13,13 +14,13 @@
 
 ### 目标
 
-从手动评测升级到定时自动化评测，增强可视化能力。
+扩展评测维度，增强可视化和统计分析能力。
 
 ### 交付价值
 
-- ✅ 定时自动化评测
 - ✅ 追踪性能变化趋势
 - ✅ 跨模型对比（4个维度）
+- ✅ 基础统计分析
 
 ### 数据集
 
@@ -35,35 +36,7 @@
 
 ## 新增功能
 
-### 1. 定时调度器
-
-**文件**：`benchmark/core/scheduler.py`
-
-**功能**：
-- 读取 `schedule.yaml` 配置
-- APScheduler 实现 cron 调度
-- PID 文件管理（防止重复启动）
-- 调度日志记录
-
-**CLI 命令**：
-```bash
-python -m benchmark scheduler start   # 启动调度器
-python -m benchmark scheduler status  # 查看状态
-python -m benchmark scheduler stop    # 停止调度器
-```
-
-**配置文件**：`benchmark/configs/schedule.yaml`
-```yaml
-schedules:
-  - name: "daily_glm_evaluation"
-    cron: "0 2 * * *"  # 每天凌晨2点
-    models: ["glm-4.7"]
-    dimensions: ["all"]
-```
-
----
-
-### 2. Trends 图
+### 1. Trends 图
 
 **文件**：`benchmark/visualization/components/trends.py`
 
@@ -80,7 +53,7 @@ schedules:
 
 ---
 
-### 3. 基础统计
+### 2. 基础统计
 
 **文件**：`benchmark/core/statistics.py`
 
@@ -96,7 +69,7 @@ schedules:
 
 ---
 
-### 4. MMLU Adapter
+### 3. MMLU Adapter
 
 **文件**：`benchmark/adapters/mmlu_adapter.py`
 
@@ -111,7 +84,7 @@ schedules:
 
 ---
 
-### 5. FrontCode Adapter
+### 4. FrontCode Adapter
 
 **文件**：`benchmark/adapters/frontcode_adapter.py`
 
@@ -128,7 +101,7 @@ schedules:
 
 ---
 
-### 6. LLMJudgeScorer
+### 5. LLMJudgeScorer
 
 **文件**：`benchmark/scorers/llm_judge_scorer.py`
 
@@ -146,23 +119,7 @@ schedules:
 
 ## 验收标准
 
-### 1. 定时调度器
-
-```bash
-# 启动调度器
-python -m benchmark scheduler start
-# 预期：创建PID文件，开始调度
-
-# 查看调度状态
-python -m benchmark scheduler status
-# 预期：显示任务列表、下次运行时间
-
-# 停止调度器
-python -m benchmark scheduler stop
-# 预期：删除PID文件，停止调度
-```
-
-### 2. 趋势图
+### 1. 趋势图
 
 ```bash
 # 启动Streamlit
@@ -174,14 +131,14 @@ streamlit run benchmark/visualization/app.py
 # - 显示分数随时间变化的折线图
 ```
 
-### 3. 基础统计
+### 2. 基础统计
 
 ```bash
 # 查看Streamlit结果表格
 # 预期：每列显示均值、标准差、置信区间
 ```
 
-### 4. 新维度评测
+### 3. 新维度评测
 
 ```bash
 # 评测system-architecture维度
@@ -213,23 +170,6 @@ python -m benchmark evaluate --model glm-4.7 --dimension frontend-dev --samples 
 
 ## 配置文件更新
 
-### schedule.yaml（新增）
-
-```yaml
-schedules:
-  - name: "daily_glm_evaluation"
-    cron: "0 2 * * *"
-    models: ["glm-4.7"]
-    dimensions: ["all"]
-    enabled: true
-  
-  - name: "weekly_competition"
-    cron: "0 4 * * 0"
-    models: ["glm-4.7", "gpt-4"]
-    dimensions: ["reasoning", "backend-dev"]
-    enabled: true
-```
-
 ### default.yaml（更新）
 
 ```yaml
@@ -239,17 +179,17 @@ dimensions:
     adapter: "gsm8k"
     auto_weight: 0.8
     judge_weight: 0.2
-  
+
   backend-dev:
     adapter: "bigcodebench"
     auto_weight: 0.8
     judge_weight: 0.2
-  
+
   system-architecture:  # 新增
     adapter: "mmlu"
     auto_weight: 0.8
     judge_weight: 0.2
-  
+
   frontend-dev:  # 新增
     adapter: "frontcode"
     auto_weight: 0.2  # ⚠️ 注意：这里权重相反
@@ -261,8 +201,7 @@ dimensions:
 ## 依赖更新
 
 **新增依赖**：
-- `apscheduler>=3.10` - 定时任务调度
-- `matplotlib>=3.7` - 趋势图绑制
+- `matplotlib>=3.7` - 趋势图绑定
 - `scipy>=1.11` - 统计计算
 
 ---
@@ -271,6 +210,8 @@ dimensions:
 
 Stage 2 **不包含**：
 
+- ❌ 定时调度器（Stage 4）
+- ❌ Docker容器化（Stage 4）
 - ❌ Agent Loop（Stage 3）
 - ❌ Bootstrap置信区间（Stage 3）
 - ❌ t-test显著性检验（Stage 3）
@@ -283,7 +224,6 @@ Stage 2 **不包含**：
 
 | 组件 | 状态 | 说明 |
 |------|------|------|
-| Scheduler | ⏳ 待实施 | 文件：`core/scheduler.py` |
 | Trends组件 | ⏳ 待实施 | 文件：`visualization/components/trends.py` |
 | Statistics | ⏳ 待实施 | 文件：`core/statistics.py` |
 | MMLUAdapter | ⏳ 待实施 | 文件：`adapters/mmlu_adapter.py` |
@@ -300,8 +240,7 @@ Stage 2 **不包含**：
 
 ## 实施顺序建议
 
-1. **Week 1**: 实现定时调度器 + 配置文件更新
-2. **Week 2**: 实现趋势图 + 基础统计
-3. **Week 3**: 实现MMLU和FrontCode适配器 + LLM Judge
+1. **Week 1**: 实现趋势图 + 基础统计
+2. **Week 2**: 实现MMLU和FrontCode适配器 + LLM Judge
 
-**总工作量**：17-23小时
+**总工作量**：12-18小时

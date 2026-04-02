@@ -1,9 +1,10 @@
 # LLM Benchmark 评测系统 - 总览规格
 
-**文档版本**: 1.0  
-**创建日期**: 2026-03-31  
-**状态**: 已确认  
-**实施策略**: 分 3 个阶段交付，每个阶段独立可用
+**文档版本**: 1.1
+**创建日期**: 2026-03-31
+**更新日期**: 2026-04-02
+**状态**: 已确认
+**实施策略**: 分 4 个阶段交付，每个阶段独立可用
 
 ---
 
@@ -87,12 +88,11 @@
 
 ---
 
-### Stage 2: 自动化 + 增强（17-23小时）
+### Stage 2: 可视化增强 + 新维度（12-18小时）
 
 **数据集**：+ system-architecture + frontend-dev，共20题
 
 **功能**：
-- 定时调度器
 - 趋势图
 - 基础统计
 - LLM Judge评分器（仅frontend-dev）
@@ -114,6 +114,18 @@
 
 ---
 
+### Stage 4: 生产部署（12-18小时）
+
+**功能**：
+- Docker容器化
+- .env配置支持
+- 定时调度器
+- 配置文件外部化
+
+**详细规格**：见 `llm-benchmark-stage4.md`
+
+---
+
 ## 使用场景
 
 ### Scene 1：手动评测单个模型
@@ -124,17 +136,33 @@ python -m benchmark evaluate --model glm-4.7 --dimension reasoning
 streamlit run benchmark/visualization/app.py
 ```
 
-### Scene 2：定时自动化评测
+### Scene 2：趋势分析和可视化
 
 ```bash
 # Stage 2 可用
-python -m benchmark scheduler start
-# 每天2点自动评测
 streamlit run benchmark/visualization/app.py
-# 查看趋势图
+# 查看趋势图、基础统计
 ```
 
 ### Scene 3：深度对比分析
+
+```bash
+# Stage 3 可用
+python -m benchmark report \
+  --models glm-4.7,gpt-4 \
+  --date-range 2024-01-01,2024-01-31 \
+  --output report.pdf
+# 生成PDF报告
+```
+
+### Scene 4：生产环境部署
+
+```bash
+# Stage 4 可用
+docker-compose up -d
+# 容器自动定时评测
+# 通过Web界面查看结果
+```
 
 ```bash
 # Stage 3 可用
@@ -158,13 +186,18 @@ python -m benchmark report \
 - `pyyaml`: 配置文件解析
 - `sqlite3`: 结果存储
 
-### 新增依赖（Stage 2/3）
+### 新增依赖（Stage 2/3/4）
 
-- `apscheduler`: 定时任务调度
-- `matplotlib`: 趋势图绑制
+**Stage 2**:
+- `matplotlib`: 趋势图绑定
+- `scipy`: 统计计算
+
+**Stage 3**:
 - `jinja2`: HTML报告模板
-- `scipy`: 统计检验
 - `weasyprint`: PDF生成（可选）
+
+**Stage 4**:
+- `apscheduler`: 定时任务调度
 
 ---
 
@@ -178,11 +211,21 @@ python -m benchmark report \
 
 ### Stage 2 验收标准
 
-- ✅ `python -m benchmark scheduler start` 启动定时任务
 - ✅ Streamlit显示趋势图
 - ✅ 可以看到均值、标准差、置信区间
+- ✅ 新维度评测成功
 
 ### Stage 3 验收标准
+
+- ✅ `python -m benchmark evaluate --model glm-4.7 --dimension tool-use-agentic` 成功运行
+- ✅ `python -m benchmark report --models glm-4.7,gpt-4 --output report.pdf` 生成PDF
+- ✅ Streamlit显示显著性检验结果
+
+### Stage 4 验收标准
+
+- ✅ `docker-compose up -d` 成功启动容器
+- ✅ `python -m benchmark scheduler start` 启动定时任务
+- ✅ .env配置正确加载
 
 - ✅ `python -m benchmark evaluate --model glm-4.7 --dimension tool-use-agentic` 成功运行
 - ✅ `python -m benchmark report --models glm-4.7,gpt-4 --output report.pdf` 生成PDF
@@ -250,7 +293,7 @@ llm-api-daily-benchmark/
 ## 下一步
 
 1. ✅ 总览规格已确认
-2. ✅ Stage 1-3 规格已文档化
+2. ✅ Stage 1-4 规格已文档化
 3. 🔄 开始创建 Stage 1 实施计划
 
 ---
@@ -260,3 +303,4 @@ llm-api-daily-benchmark/
 - **Stage 1 详细规格**：`llm-benchmark-stage1.md`
 - **Stage 2 概要规格**：`llm-benchmark-stage2.md`
 - **Stage 3 概要规格**：`llm-benchmark-stage3.md`
+- **Stage 4 概要规格**：`llm-benchmark-stage4.md`

@@ -26,8 +26,11 @@ benchmark/logs/*.log
 # 运行时日志（项目根目录）
 logs/
 
-# Sisyphus 工具状态
-.sisyphus/
+# Sisyphus 工具状态（但保留规格文档）
+.sisyphus/boulder.json
+.sisyphus/drafts/
+.sisyphus/evidence/
+.sisyphus/plans/
 
 # OS
 .DS_Store

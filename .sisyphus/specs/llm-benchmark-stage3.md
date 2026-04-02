@@ -451,7 +451,8 @@ python -m benchmark report --models glm-4.7,gpt-4 --output report.pdf
 
 Stage 3 **不包含**：
 
-- ❌ Docker容器化（不在任何Stage）
+- ❌ Docker容器化（Stage 4）
+- ❌ 定时调度器（Stage 4）
 - ❌ 浏览器渲染验证（不在任何Stage）
 - ❌ 分布式评测（不在任何Stage）
 - ❌ 实时评测（不在任何Stage）
