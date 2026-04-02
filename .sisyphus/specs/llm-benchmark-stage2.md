@@ -1,12 +1,12 @@
 # LLM Benchmark - Stage 2 规格概要
 
 **阶段**: 可视化增强 + 新维度
-**版本**: 1.1
+**版本**: 1.2
 **创建日期**: 2026-03-31
 **更新日期**: 2026-04-02
 **状态**: 规划中
 **前置条件**: Stage 1 完成并验收
-**估算工作量**: 12-18 小时
+**估算工作量**: 10-14 小时
 
 ---
 
@@ -28,7 +28,7 @@
 |------|--------|--------|------|
 | reasoning | GSM8K最难的5题 | 5题 | ✅ Stage 1 |
 | backend-dev | BigCodeBench-Hard 5题 | 5题 | ✅ Stage 1 |
-| **system-architecture** | **MMLU（法律/道德）** | **5题** | **🆕 Stage 2** |
+| **system-architecture** | **MMLU（计算机科学/抽象代数）** | **5题** | **🆕 Stage 2** |
 | **frontend-dev** | **FrontCode自建** | **5题** | **🆕 Stage 2** |
 | **总计** | | **20题** | |
 
@@ -44,12 +44,17 @@
 - 时间序列数据查询（从SQLite）
 - matplotlib 绘制趋势图
 - Streamlit 组件封装
+- 默认显示最近 30 天数据
 
 **展示内容**：
 - 单模型多维度趋势（多条线）
 - 多模型单维度对比（多条线）
 - X轴：日期
 - Y轴：分数
+
+**时间范围选择**：
+- 默认：最近 30 天
+- 可选：7天、30天、90天、全部
 
 ---
 
@@ -64,8 +69,23 @@
 - 统计结果格式化
 
 **展示位置**：
-- Streamlit结果表格中显示
+- Streamlit 统计卡片（顶部展示）
+- 结果表格中显示
 - 导出JSON时包含统计信息
+
+**展示布局**：
+```
+┌─────────────────────────────────────────────────────────┐
+│  📊 统计摘要                                            │
+├─────────────────────────────────────────────────────────┤
+│  Model: glm-4.7  │  Dimension: reasoning  │  30 Days   │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  平均分: 78.5  │  标准差: ±12.3  │  95% CI: [65.2, 91.8]│
+│                                                         │
+│  样本数: 15  │  最高: 95  │  最低: 45                   │
+└─────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -73,14 +93,18 @@
 
 **文件**：`benchmark/adapters/mmlu_adapter.py`
 
-**数据集**：MMLU（5个学科）
+**数据集**：MMLU（2个学科）
 
 **选择策略**：
-- 选择法律、道德领域（最难的学科）
-- 选择哲学、计算机科学、数学（补充分布）
-- 每个学科1题，共5题
+- **computer_science**：选择 3 道最难题目
+- **abstract_algebra**：选择 2 道最难题目
+- 总计 5 题
 
 **评分器**：ExactMatchScorer（选择题匹配）
+
+**数据来源**：
+- Hugging Face: `cais/mmlu`
+- 配置: `computer_science` 和 `abstract_algebra`
 
 ---
 
@@ -97,23 +121,12 @@
 - React组件生成：1题
 - 复杂前端任务：1题
 
-**评分器**：LLMJudgeScorer（代码质量评估）
+**评分器**：ExactMatchScorer（关键词/正则匹配）
 
----
-
-### 5. LLMJudgeScorer
-
-**文件**：`benchmark/scorers/llm_judge_scorer.py`
-
-**功能**：
-- 调用LLM作为评判者
-- 评估代码质量
-- 返回0-10分（映射到0-100）
-
-**为什么Stage 2才实现**：
-- LLM Judge需要额外设计和调试
-- 需要设计评分标准（rubric）
-- 前端评测质量比功能更重要
+**评分逻辑**：
+- 检查代码是否包含预期的 HTML 标签/类名/函数名
+- 使用正则表达式匹配关键结构
+- 返回 0-100 分（基于匹配项比例）
 
 ---
 
@@ -127,15 +140,15 @@ streamlit run benchmark/visualization/app.py
 
 # 预期：
 # - 可以看到"趋势"标签页
-# - 可以选择模型、维度、时间范围
+# - 可以选择模型、维度、时间范围（默认30天）
 # - 显示分数随时间变化的折线图
 ```
 
 ### 2. 基础统计
 
 ```bash
-# 查看Streamlit结果表格
-# 预期：每列显示均值、标准差、置信区间
+# 查看Streamlit统计卡片
+# 预期：显示均值、标准差、95%置信区间、样本数、最高/最低分
 ```
 
 ### 3. 新维度评测
@@ -147,24 +160,19 @@ python -m benchmark evaluate --model glm-4.7 --dimension system-architecture --s
 
 # 评测frontend-dev维度
 python -m benchmark evaluate --model glm-4.7 --dimension frontend-dev --samples 5
-# 预期：FrontCode评测成功，LLMJudge打分
+# 预期：FrontCode评测成功，关键词匹配评分
 ```
 
 ---
 
-## 评分策略调整
-
-### Stage 1 评分
-
-- **reasoning**: functional_score（精确匹配）
-- **backend-dev**: functional_score（执行验证）
+## 评分策略
 
 ### Stage 2 评分
 
 - **reasoning**: functional_score（精确匹配）
 - **backend-dev**: functional_score（执行验证）
 - **system-architecture**: functional_score（选择题匹配）
-- **frontend-dev**: quality_score（LLM Judge）⚠️ 这是唯一使用LLM Judge的维度
+- **frontend-dev**: functional_score（关键词/正则匹配）
 
 ---
 
@@ -177,23 +185,20 @@ python -m benchmark evaluate --model glm-4.7 --dimension frontend-dev --samples 
 dimensions:
   reasoning:
     adapter: "gsm8k"
-    auto_weight: 0.8
-    judge_weight: 0.2
+    auto_weight: 1.0
 
   backend-dev:
     adapter: "bigcodebench"
-    auto_weight: 0.8
-    judge_weight: 0.2
+    auto_weight: 1.0
 
   system-architecture:  # 新增
     adapter: "mmlu"
-    auto_weight: 0.8
-    judge_weight: 0.2
+    subjects: ["computer_science", "abstract_algebra"]
+    auto_weight: 1.0
 
   frontend-dev:  # 新增
     adapter: "frontcode"
-    auto_weight: 0.2  # ⚠️ 注意：这里权重相反
-    judge_weight: 0.8  # LLM Judge权重高
+    auto_weight: 1.0
 ```
 
 ---
@@ -212,6 +217,7 @@ Stage 2 **不包含**：
 
 - ❌ 定时调度器（Stage 4）
 - ❌ Docker容器化（Stage 4）
+- ❌ LLM Judge 评分器（已移除）
 - ❌ Agent Loop（Stage 3）
 - ❌ Bootstrap置信区间（Stage 3）
 - ❌ t-test显著性检验（Stage 3）
@@ -228,7 +234,6 @@ Stage 2 **不包含**：
 | Statistics | ⏳ 待实施 | 文件：`core/statistics.py` |
 | MMLUAdapter | ⏳ 待实施 | 文件：`adapters/mmlu_adapter.py` |
 | FrontCodeAdapter | ⏳ 待实施 | 文件：`adapters/frontcode_adapter.py` |
-| LLMJudgeScorer | ⏳ 待实施 | 文件：`scorers/llm_judge_scorer.py` |
 
 ---
 
@@ -241,6 +246,6 @@ Stage 2 **不包含**：
 ## 实施顺序建议
 
 1. **Week 1**: 实现趋势图 + 基础统计
-2. **Week 2**: 实现MMLU和FrontCode适配器 + LLM Judge
+2. **Week 2**: 实现MMLU和FrontCode适配器
 
-**总工作量**：12-18小时
+**总工作量**：10-14小时
