@@ -32,8 +32,6 @@ packages = ["benchmark"]
 dev = ["pytest>=8.0"]
 # BigCodeBench-Hard 轻量题所需的第三方执行依赖
 benchmark = [
-    "matplotlib>=3.7",
-    "scipy>=1.11",
     "seaborn>=0.12",
     "beautifulsoup4>=4.12",
     "psutil>=5.9",
