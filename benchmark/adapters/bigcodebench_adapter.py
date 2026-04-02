@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import random
 from typing import List
@@ -26,6 +27,12 @@ def _is_heavy_task(item: dict) -> bool:
     libs = item.get("libs")
     if not libs:
         return False
+    # libs 在 HuggingFace 数据集中是字符串形式的列表，需要解析
+    if isinstance(libs, str):
+        try:
+            libs = ast.literal_eval(libs)
+        except (ValueError, SyntaxError):
+            return False
     return bool(set(libs) & _HEAVY_LIBS)
 
 

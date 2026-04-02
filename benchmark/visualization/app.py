@@ -95,7 +95,7 @@ def main() -> None:
     if results_check[0] == 0:
         st.info("No evaluation results yet. Run an evaluation to get started.")
         st.code(
-            "python -m benchmark evaluate --model glm-4.7 --dimension reasoning --samples 5"
+            "uv run python -m benchmark evaluate --model my-provider/my-model --dimension reasoning"
         )
         return
 
