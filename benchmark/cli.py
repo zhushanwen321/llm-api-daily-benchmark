@@ -18,7 +18,9 @@ from rich.console import Console
 from rich.progress import Progress
 
 from benchmark.adapters.bigcodebench_adapter import BigCodeBenchAdapter
+from benchmark.adapters.frontcode_adapter import FrontCodeAdapter
 from benchmark.adapters.gsm8k_adapter import GSM8KAdapter
+from benchmark.adapters.mmlu_adapter import MMLUAdapter
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.core.logging_config import setup_logging
 from benchmark.core.response_parser import parse_response
@@ -26,6 +28,7 @@ from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.execution_scorer import ExecutionScorer
 from benchmark.scorers.exact_match_scorer import ExactMatchScorer
+from benchmark.scorers.keyword_match_scorer import KeywordMatchScorer
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -33,11 +36,15 @@ logger = logging.getLogger(__name__)
 DIMENSION_REGISTRY: dict[str, tuple] = {
     "reasoning": (GSM8KAdapter, ExactMatchScorer),
     "backend-dev": (BigCodeBenchAdapter, ExecutionScorer),
+    "system-architecture": (MMLUAdapter, ExactMatchScorer),
+    "frontend-dev": (FrontCodeAdapter, KeywordMatchScorer),
 }
 
 DATASET_REGISTRY: dict[str, str] = {
     "reasoning": "gsm8k",
     "backend-dev": "bigcodebench",
+    "system-architecture": "mmlu",
+    "frontend-dev": "frontcode",
 }
 
 
@@ -73,7 +80,7 @@ def cli(ctx: click.Context, debug: bool) -> None:
 @click.option(
     "--dimension",
     required=True,
-    type=click.Choice(["reasoning", "backend-dev"]),
+    type=click.Choice(["reasoning", "backend-dev", "system-architecture", "frontend-dev"]),
     help="评测维度",
 )
 @click.option("--samples", default=5, help="评测题目数量")
@@ -295,8 +302,10 @@ async def _run_evaluation(
 def list_datasets() -> None:
     """列出可用数据集."""
     console.print("[bold]Available datasets:[/bold]")
-    console.print("  [cyan]reasoning:[/cyan]     GSM8K (hardest 5 tasks by step count)")
-    console.print("  [cyan]backend-dev:[/cyan]  BigCodeBench-Hard (5 tasks)")
+    console.print("  [cyan]reasoning:[/cyan]           GSM8K (hardest 5 tasks by step count)")
+    console.print("  [cyan]backend-dev:[/cyan]        BigCodeBench-Hard (5 tasks)")
+    console.print("  [cyan]system-architecture:[/cyan] MMLU (computer_science + abstract_algebra)")
+    console.print("  [cyan]frontend-dev:[/cyan]       FrontCode (自建前端评测)")
 
 
 @cli.command()
