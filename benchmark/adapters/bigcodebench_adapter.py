@@ -1,4 +1,4 @@
-"""BigCodeBench 数据集适配器.加载官方 Hard 子集，随机选 5 题."""
+"""BigCodeBench 数据集适配器.加载官方 Hard 子集，过滤重型依赖后随机选 5 题."""
 
 from __future__ import annotations
 
@@ -9,14 +9,31 @@ from typing import List
 from datasets import load_dataset
 
 from benchmark.adapters.base import DatasetAdapter
+from benchmark.core.prompt_builder import build_structured_prompt
 from benchmark.models.schemas import TaskDefinition
+
+# 安装慢或有系统依赖的重型库，含这些库的题目会被排除
+_HEAVY_LIBS = frozenset({
+    "tensorflow", "keras", "geopandas", "librosa", "soundfile",
+    "gensim", "pytesseract", "cv2", "nltk", "wordcloud",
+    "torch", "transformers", "tiktoken", "Levenshtein",
+    "Crypto", "cryptography", "shapely", "sklearn",
+})
+
+
+def _is_heavy_task(item: dict) -> bool:
+    """检查题目是否依赖重型库（基于 libs 字段）."""
+    libs = item.get("libs")
+    if not libs:
+        return False
+    return bool(set(libs) & _HEAVY_LIBS)
 
 
 class BigCodeBenchAdapter(DatasetAdapter):
-    """BigCodeBench 适配器，从 Hard 子集随机选 5 题."""
+    """BigCodeBench 适配器，从 Hard 子集过滤重型依赖后随机选 5 题."""
 
     def load(self, path: str = "") -> List[TaskDefinition]:
-        """加载 BigCodeBench-Hard 子集,随机选 5 题."""
+        """加载 BigCodeBench-Hard 子集,过滤重型库后随机选 5 题."""
         cache_dir = path or os.path.join("benchmark", "datasets", "bigcodebench")
         dataset = load_dataset(
             "bigcode/bigcodebench-hard",
@@ -25,10 +42,12 @@ class BigCodeBenchAdapter(DatasetAdapter):
             download_mode="reuse_dataset_if_exists",
         )
 
+        # 过滤掉依赖重型库的题目
+        lightweight = [item for item in dataset if not _is_heavy_task(item)]
+
         # 随机选 5 题（固定随机种子保证可复现）
         rng = random.Random(42)
-        indices = rng.sample(range(len(dataset)), min(5, len(dataset)))
-        selected = [dataset[i] for i in indices]
+        selected = rng.sample(lightweight, min(5, len(lightweight)))
 
         tasks = []
         for idx, item in enumerate(selected):
@@ -38,7 +57,10 @@ class BigCodeBenchAdapter(DatasetAdapter):
                 task_id=task_id,
                 dimension="backend-dev",
                 dataset="bigcodebench",
-                prompt=item.get("instruct_prompt", item.get("complete_prompt", "")),
+                prompt=build_structured_prompt(
+                    item.get("instruct_prompt", item.get("complete_prompt", "")),
+                    "backend-dev",
+                ),
                 expected_output="",
                 metadata={
                     "difficulty": "hard",

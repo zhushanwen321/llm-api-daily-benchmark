@@ -6,6 +6,7 @@ import re
 from typing import List
 from datasets import load_dataset
 from benchmark.adapters.base import DatasetAdapter
+from benchmark.core.prompt_builder import build_structured_prompt
 from benchmark.models.schemas import TaskDefinition
 
 
@@ -39,7 +40,7 @@ class GSM8KAdapter(DatasetAdapter):
                 task_id=f"gsm8k_hardest_{idx + 1}",
                 dimension="reasoning",
                 dataset="gsm8k",
-                prompt=item["question"],
+                prompt=build_structured_prompt(item["question"], "reasoning"),
                 expected_output=expected,
                 metadata={"difficulty": "hard", "source": "openai/gsm8k"},
             )
