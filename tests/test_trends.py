@@ -38,7 +38,6 @@ def test_get_trend_data_returns_correct_structure():
         """)
 
         # 插入测试数据
-        from datetime import datetime, timedelta
         now = datetime.now()
         conn.execute("INSERT INTO eval_runs VALUES (?, ?, ?, ?)", ("run1", "glm-4.7", "reasoning", now))
         conn.execute("INSERT INTO eval_results VALUES (?, ?, ?, ?)", ("res1", "run1", 80.0, now))
