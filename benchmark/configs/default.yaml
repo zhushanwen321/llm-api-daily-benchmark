@@ -20,6 +20,17 @@ dimensions:
     auto_weight: 0.8
     judge_weight: 0.2
 
+  system-architecture:
+    adapter: "mmlu"
+    subjects: ["computer_science", "abstract_algebra"]
+    auto_weight: 0.8
+    judge_weight: 0.2
+
+  frontend-dev:
+    adapter: "frontcode"
+    auto_weight: 0.8
+    judge_weight: 0.2
+
 # 难度权重
 difficulty_weights:
   easy: 1.0
