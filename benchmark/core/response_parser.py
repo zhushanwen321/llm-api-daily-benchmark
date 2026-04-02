@@ -83,7 +83,7 @@ def _extract_answer_from_json(data: dict, dimension: str) -> str:
     if dimension == "reasoning":
         # 优先取 answer 字段，fallback 到 reasoning 字段（某些模型可能用错字段名）
         return str(data.get("answer", data.get("result", "")))
-    elif dimension == "backend-dev":
+    elif dimension in ("backend-dev", "frontend-dev"):
         # 优先取 code 字段
         return str(data.get("code", ""))
     return ""
