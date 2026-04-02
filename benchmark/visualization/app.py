@@ -125,7 +125,12 @@ def main() -> None:
         lambda x: f"{x:.1f} tok/s" if pd.notna(x) else "-"
     )
     display_df = display_df.drop(
-        columns=["prompt_tokens", "completion_tokens", "ttft_content", "reasoning_tokens"]
+        columns=[
+            "prompt_tokens",
+            "completion_tokens",
+            "ttft_content",
+            "reasoning_tokens",
+        ]
     )
     display_df.columns = [
         "ID",
@@ -139,28 +144,33 @@ def main() -> None:
         "Date",
     ]
 
-    # 使用 dataframe 的 on_select 实现行点击选中
-    selection = st.dataframe(
+    st.dataframe(
         display_df,
         use_container_width=True,
         hide_index=True,
-        on_select="rerun",
-        selection_mode="single-row",
     )
 
-    # 从 selection 中获取选中的行索引
-    selected_rows = selection.get("selection", {}).get("rows", [])
-    if selected_rows:
-        row_idx = selected_rows[0]
-        selected_result_id = df.iloc[row_idx]["result_id"]
-    else:
-        # 默认选中第一条
-        selected_result_id = df.iloc[0]["result_id"]
+    result_ids = df["result_id"].tolist()
+    if (
+        "selected_result_id" not in st.session_state
+        or st.session_state["selected_result_id"] not in result_ids
+    ):
+        st.session_state["selected_result_id"] = result_ids[0]
+
+    selected_result_id = st.session_state["selected_result_id"]
 
     if selected_result_id:
         detail = get_result_detail(conn, selected_result_id)
         if detail:
             st.divider()
+            selected_result_id = st.selectbox(
+                "Evaluation Result Detail",
+                options=result_ids,
+                index=result_ids.index(st.session_state["selected_result_id"]),
+                key="result_id_selector",
+            )
+            st.session_state["selected_result_id"] = selected_result_id
+            detail = get_result_detail(conn, selected_result_id)
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Score", f"{detail['final_score']:.1f}")
@@ -181,13 +191,21 @@ def main() -> None:
                         "Tokens",
                         f"{metrics_row['prompt_tokens']} in / {metrics_row['completion_tokens']} out",
                     )
-                    reasoning_tokens = metrics_row["reasoning_tokens"] if "reasoning_tokens" in metrics_row.keys() else 0
+                    reasoning_tokens = (
+                        metrics_row["reasoning_tokens"]
+                        if "reasoning_tokens" in metrics_row.keys()
+                        else 0
+                    )
                     if reasoning_tokens > 0:
                         st.metric(
                             "Reasoning Tokens",
                             f"{reasoning_tokens}",
                         )
-                    ttft_content = metrics_row["ttft_content"] if "ttft_content" in metrics_row.keys() else 0.0
+                    ttft_content = (
+                        metrics_row["ttft_content"]
+                        if "ttft_content" in metrics_row.keys()
+                        else 0.0
+                    )
                     if ttft_content > 0:
                         st.metric(
                             "TTFT-C",
