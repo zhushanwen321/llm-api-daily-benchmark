@@ -113,38 +113,38 @@ def main() -> None:
     selected_dimension = st.sidebar.selectbox("Dimension", dim_options)
 
     st.subheader("Evaluation Results")
+
+    # 创建标签页结构
+    tab1, tab2, tab3 = st.tabs(["Results", "Trends", "Detail"])
+
     df = get_results_df(conn, selected_model, selected_dimension)
 
     if df.empty:
         st.warning("No results match the selected filters.")
         return
 
-    # 添加统计卡片（在过滤器之后）
-    st.subheader("Statistics Summary")
-
-    # 计算统计数据
-    scores = df["final_score"].tolist()
-    if len(scores) >= 2:
-        mean_score = calculate_mean(scores)
-        std_score = calculate_std(scores)
-        ci_lower, ci_upper = calculate_confidence_interval(scores)
-
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            st.metric("Mean", f"{mean_score:.1f}")
-        with col2:
-            st.metric("Std Dev", f"±{std_score:.2f}")
-        with col3:
-            st.metric("95% CI", f"[{ci_lower:.1f}, {ci_upper:.1f}]")
-        with col4:
-            st.metric("Max", f"{max(scores):.1f}")
-        with col5:
-            st.metric("Min", f"{min(scores):.1f}")
-
-    # 创建标签页结构
-    tab1, tab2, tab3 = st.tabs(["Results", "Trends", "Detail"])
-
     with tab1:
+        st.subheader("Statistics Summary")
+
+        # 计算统计数据
+        scores = df["final_score"].tolist()
+        if len(scores) >= 2:
+            mean_score = calculate_mean(scores)
+            std_score = calculate_std(scores)
+            ci_lower, ci_upper = calculate_confidence_interval(scores)
+
+            col1, col2, col3, col4, col5 = st.columns(5)
+            with col1:
+                st.metric("Mean", f"{mean_score:.1f}")
+            with col2:
+                st.metric("Std Dev", f"±{std_score:.2f}")
+            with col3:
+                st.metric("95% CI", f"[{ci_lower:.1f}, {ci_upper:.1f}]")
+            with col4:
+                st.metric("Max", f"{max(scores):.1f}")
+            with col5:
+                st.metric("Min", f"{min(scores):.1f}")
+
         st.subheader("Results Table")
 
         display_df = df.copy()
@@ -184,6 +184,11 @@ def main() -> None:
     with tab2:
         st.subheader("Score Trends")
 
+        # 添加时间范围选择器
+        time_range = st.selectbox("Time Range", ["7 days", "30 days", "90 days", "All"], index=1)
+        days_map = {"7 days": 7, "30 days": 30, "90 days": 90, "All": 365}
+        selected_days = days_map[time_range]
+
         # 获取当前选择的模型和维度
         selected_models = models if selected_model == "All" else [selected_model]
         selected_dimensions = dimensions if selected_dimension == "All" else [selected_dimension]
@@ -191,11 +196,11 @@ def main() -> None:
         # 展示趋势图
         if selected_model != "All" and selected_dimension != "All":
             # 单模型单维度的趋势图
-            trend_data = trends.get_trend_data(conn, selected_model, selected_dimension)
+            trend_data = trends.get_trend_data(conn, selected_model, selected_dimension, selected_days)
             if trend_data["dates"]:
                 fig = trends.create_trend_figure(
                     trend_data,
-                    title=f"{selected_model} - {selected_dimension} Trend"
+                    title=f"{selected_model} - {selected_dimension} Trend ({time_range})"
                 )
                 st.pyplot(fig)
             else:
@@ -203,16 +208,16 @@ def main() -> None:
         elif selected_model != "All" and selected_dimension == "All":
             # 单模型多维度的趋势图
             for dimension in selected_dimensions:
-                trend_data = trends.get_trend_data(conn, selected_model, dimension)
+                trend_data = trends.get_trend_data(conn, selected_model, dimension, selected_days)
                 if trend_data["dates"]:
                     fig = trends.create_trend_figure(
                         trend_data,
-                        title=f"{selected_model} - {dimension} Trend"
+                        title=f"{selected_model} - {dimension} Trend ({time_range})"
                     )
                     st.pyplot(fig)
         elif selected_model == "All" and selected_dimension != "All":
             # 多模型单维度的对比趋势图
-            fig = trends.create_multi_model_trend(conn, selected_models, selected_dimension)
+            fig = trends.create_multi_model_trend(conn, selected_models, selected_dimension, selected_days)
             st.pyplot(fig)
         else:
             st.info("Please select a specific model or dimension to view trends.")
