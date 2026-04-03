@@ -32,6 +32,14 @@ _FRONTEND_DEV_SCHEMA = {
     },
 }
 
+_MATH_SCHEMA = {
+    "instruction": (
+        "请先展示解题过程，然后将最终答案放在 \\boxed{} 中。\n"
+        "例如：如果答案是 42，请写 \\boxed{42}；如果答案是 3/5，请写 \\boxed{\\frac{3}{5}}。\n"
+        "不要使用 JSON 格式回答。"
+    ),
+}
+
 _SCHEMAS = {
     "reasoning": _REASONING_SCHEMA,
     "backend-dev": _BACKEND_DEV_SCHEMA,
@@ -39,16 +47,21 @@ _SCHEMAS = {
 }
 
 
-def build_structured_prompt(task_prompt: str, dimension: str) -> str:
+def build_structured_prompt(task_prompt: str, dimension: str, dataset: str = "") -> str:
     """在原始任务 prompt 后追加 JSON 格式要求.
 
     Args:
         task_prompt: 原始任务描述
         dimension: 评测维度（"reasoning" 或 "backend-dev"）
+        dataset: 数据集名称（"math" 时使用 \boxed{} 格式而非 JSON）
 
     Returns:
         带有 JSON 格式要求的完整 prompt
     """
+    # MATH 数据集：追加 \boxed{} 指令
+    if dataset == "math":
+        return f"{task_prompt}\n\n---\n{_MATH_SCHEMA['instruction']}"
+
     schema = _SCHEMAS.get(dimension)
     if not schema:
         return task_prompt

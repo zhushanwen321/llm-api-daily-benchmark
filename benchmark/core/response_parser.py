@@ -19,6 +19,8 @@ _JSON_BLOCK_RE = re.compile(
 _PYTHON_BLOCK_RE = re.compile(
     r"```(?:python)?\s*\n?(.*?)\n?\s*```", re.DOTALL
 )
+# 匹配 \boxed{...}，支持嵌套花括号
+_BOXED_RE = re.compile(r"\\boxed\s*\{")
 
 
 @dataclass
@@ -78,6 +80,41 @@ def extract_python_code(text: str) -> str | None:
     return None
 
 
+def extract_boxed(text: str) -> str:
+    """从 LaTeX 文本中提取 \\boxed{...} 内的内容.
+
+    处理嵌套花括号，如 \\boxed{\\frac{14}{3}}.
+    处理双重嵌套，如 \\boxed{\\boxed{42}} -> 42.
+    """
+    match = _BOXED_RE.search(text)
+    if not match:
+        return ""
+
+    # 从 \boxed{ 后面开始，逐字符平衡匹配花括号
+    start = match.end()  # 指向 { 后面的第一个字符
+    depth = 1
+    pos = start
+    while pos < len(text) and depth > 0:
+        if text[pos] == '{':
+            depth += 1
+        elif text[pos] == '}':
+            depth -= 1
+        pos += 1
+
+    if depth == 0:
+        result = text[start : pos - 1].strip()
+    else:
+        result = text[start:].strip()
+
+    # 处理双重嵌套: \boxed{\boxed{42}} -> 递归提取
+    if result.startswith("\\boxed"):
+        inner = extract_boxed(result)
+        if inner:
+            return inner
+
+    return result
+
+
 def _extract_answer_from_json(data: dict, dimension: str) -> str:
     """从 JSON 数据中按维度提取 answer 字段."""
     if dimension == "reasoning":
@@ -101,6 +138,12 @@ def parse_response(raw: str, dimension: str) -> ParsedResponse:
     """
     if not raw:
         return ParsedResponse(think="", answer="")
+
+    # Step 0: reasoning 维度先尝试 \boxed{} 提取（MATH 数据集）
+    if dimension == "reasoning":
+        boxed = extract_boxed(raw)
+        if boxed:
+            return ParsedResponse(think="", answer=boxed)
 
     # Step 1: 尝试 JSON 解析
     json_data = extract_json_object(raw)
