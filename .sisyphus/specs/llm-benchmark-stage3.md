@@ -2,7 +2,7 @@
 
 **版本**: 2.0
 **创建日期**: 2026-03-31
-**更新日期**: 2026-04-02
+**更新日期**: 2026-04-03
 **状态**: 规划中
 **前置条件**: Stage 2 完成并验收
 
@@ -169,6 +169,55 @@ score_result = scorer.score(ctx)
 - `prompt_builder.py` 保持不变
 - 数据库 schema 无变化
 - 旧的评测结果数据完全兼容
+
+---
+
+## 1.9 Prompt 格式对齐分析
+
+对每个数据集的 prompt→parse→score 链路进行格式对齐审查，识别出以下风险点。
+实施阶段需逐项验证。
+
+### MATH（替换 GSM8K）
+
+answer 格式分布（Level 4-5 共 262 题）:
+
+| 类型 | 数量 | 示例 |
+|------|------|------|
+| 纯数字 | 158 (60%) | `4`, `284` |
+| 含 `\frac` | 43 (16%) | `\frac{14}{3}`, `\frac{3\sqrt{3}}{4}` |
+| 代数表达式 | 26 (10%) | `p - q`, `6-5i` |
+| 含 `\sqrt` | 16 (6%) | `11\sqrt2`, `\sqrt{5}` |
+| 含 `^\circ` | 6 (2%) | `90^\circ` |
+| 坐标/区间 | 2 (<1%) | `\left(\frac{3}{5},\frac{8}{3}\right]` |
+
+**必须处理的格式风险:**
+
+1. **必须指定 `\boxed{}` 格式** — prompt 要求模型将最终答案放在 `\boxed{}` 中，否则无法可靠提取答案。当前 prompt_builder 对 reasoning 维度追加 JSON 格式 `{"answer": "42"}`，需改为不要求 JSON，改为要求 `\boxed{}` 格式。
+2. **40% 的答案不是纯数字** — 模型可能输出 `14/3` vs `\frac{14}{3}` vs `4.667`，三者等价但字符串不同。MathScorer 需要多层比较策略：字符串→数值→sympy 符号。
+3. **`\boxed{}` 提取需处理嵌套花括号** — `\boxed{\frac{14}{3}}` 内有嵌套 `{}`，简单正则会匹配错误，需花括号平衡匹配。
+4. **数据集 `answer` 字段已是提取好的表达式** — 直接用作 `expected_output`，无需从 `solution` 重新提取。
+
+### MMLU-Pro（替换 MMLU）
+
+**必须处理的格式风险:**
+
+1. **选项范围 A-J** — 当前 MMLU adapter prompt 写死 "(A, B, C, D)"，MMLU-Pro 有 10 个选项（A-J），需动态生成提示范围。
+2. **选项数量不固定** — 不同题目 8-10 个选项不等，prompt 应根据实际选项数量动态提示。
+3. **`answer` 字段已是字母** — 如 `'B'`, `'H'`，可直接作为 `expected_output`，复用 ChoiceMatchScorer。
+4. **风险可控** — ChoiceMatchScorer 取最后一个独立字母，选项内容为长文本，不易产生误匹配。
+
+### BigCodeBench-Hard（增加题量）
+
+无新格式风险。现有 pipeline 已验证通过。
+
+### Web-Bench（替换 FrontCode）
+
+**格式风险最高:**
+
+1. **数据集不包含项目源代码** — `project` 字段仅为名称字符串（如 `"angular"`, `"react"`），无脚手架代码、测试用例、参考答案。完整评测需从 Web-Bench GitHub repo 获取项目脚手架和 Playwright 测试。
+2. **description 要求具体** — 如 "Create components/header/header.component.ts that displays 'Hello Blog'"，prompt 需明确要求输出完整文件代码。
+3. **不同项目技术栈不同** — angular/React/Vue/Node.js 等，prompt 需指明目标技术栈。
+4. **无 Playwright 环境时需降级** — 临时用关键词/结构匹配评分（类似 KeywordMatchScorer），长期搭建 Playwright 测试环境。
 
 ---
 
