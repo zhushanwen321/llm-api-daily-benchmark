@@ -335,3 +335,29 @@ def export(fmt: str, output: str, model: str | None, dimension: str | None) -> N
             console.print(
                 f"[green]Exported {len(results)} results to {output_path}[/green]"
             )
+
+
+@cli.command()
+@click.option("--models", default=None, help="逗号分隔的模型列表")
+@click.option("--dimensions", default=None, help="逗号分隔的维度列表")
+@click.option("--date-range", default=None, help="日期范围，格式: 2026-04-01,2026-04-30")
+@click.option("--output", default="report.html", help="输出文件路径")
+def report(models: str | None, dimensions: str | None, date_range: str | None, output: str) -> None:
+    """生成 HTML 评测报告."""
+    from benchmark.core.reporter import generate_html_report
+
+    model_list = models.split(",") if models else None
+    dim_list = dimensions.split(",") if dimensions else None
+    dr = tuple(date_range.split(",")) if date_range else None
+
+    try:
+        path = generate_html_report(
+            models=model_list,
+            dimensions=dim_list,
+            date_range=dr,
+            output_path=output,
+        )
+        console.print(f"[green]Report generated: {path}[/green]")
+    except ValueError as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(1)
