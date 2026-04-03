@@ -84,7 +84,7 @@ def cli(ctx: click.Context, debug: bool) -> None:
     type=click.Choice(["reasoning", "backend-dev", "system-architecture", "frontend-dev"]),
     help="评测维度",
 )
-@click.option("--samples", default=5, help="评测题目数量")
+@click.option("--samples", default=15, help="评测题目数量")
 @click.option(
     "--debug",
     is_flag=True,
