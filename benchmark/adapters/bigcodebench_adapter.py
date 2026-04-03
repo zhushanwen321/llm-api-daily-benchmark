@@ -1,8 +1,9 @@
-"""BigCodeBench 数据集适配器.加载官方 Hard 子集，过滤重型依赖后随机选 5 题."""
+"""BigCodeBench 数据集适配器.加载官方 Hard 子集，过滤重型依赖后随机选 15 题."""
 
 from __future__ import annotations
 
 import ast
+import logging
 import os
 import random
 from typing import List
@@ -12,6 +13,8 @@ from datasets import load_dataset
 from benchmark.adapters.base import DatasetAdapter
 from benchmark.core.prompt_builder import build_structured_prompt
 from benchmark.models.schemas import TaskDefinition
+
+logger = logging.getLogger(__name__)
 
 # 安装慢或有系统依赖的重型库，含这些库的题目会被排除
 _HEAVY_LIBS = frozenset({
@@ -37,10 +40,10 @@ def _is_heavy_task(item: dict) -> bool:
 
 
 class BigCodeBenchAdapter(DatasetAdapter):
-    """BigCodeBench 适配器，从 Hard 子集过滤重型依赖后随机选 5 题."""
+    """BigCodeBench 适配器，从 Hard 子集过滤重型依赖后随机选 15 题."""
 
     def load(self, path: str = "") -> List[TaskDefinition]:
-        """加载 BigCodeBench-Hard 子集,过滤重型库后随机选 5 题."""
+        """加载 BigCodeBench-Hard 子集,过滤重型库后随机选 15 题."""
         cache_dir = path or os.path.join("benchmark", "datasets", "bigcodebench")
         dataset = load_dataset(
             "bigcode/bigcodebench-hard",
@@ -52,9 +55,12 @@ class BigCodeBenchAdapter(DatasetAdapter):
         # 过滤掉依赖重型库的题目
         lightweight = [item for item in dataset if not _is_heavy_task(item)]
 
-        # 随机选 5 题（固定随机种子保证可复现）
+        # 随机选 15 题（固定随机种子保证可复现）
         rng = random.Random(42)
-        selected = rng.sample(lightweight, min(5, len(lightweight)))
+        n = min(15, len(lightweight))
+        if n < 15:
+            logger.warning(f"BigCodeBench: only {n}/{len(dataset)} lightweight tasks available (wanted 15)")
+        selected = rng.sample(lightweight, n)
 
         tasks = []
         for idx, item in enumerate(selected):
