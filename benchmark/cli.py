@@ -19,8 +19,8 @@ from rich.progress import Progress
 
 from benchmark.adapters.bigcodebench_adapter import BigCodeBenchAdapter
 from benchmark.adapters.frontcode_adapter import FrontCodeAdapter
-from benchmark.adapters.gsm8k_adapter import GSM8KAdapter
-from benchmark.adapters.mmlu_adapter import MMLUAdapter
+from benchmark.adapters.math_adapter import MATHAdapter
+from benchmark.adapters.mmlu_pro_adapter import MMLUProAdapter
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.core.logging_config import setup_logging
 from benchmark.core.evaluator import SingleTurnEvaluator
@@ -28,23 +28,23 @@ from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.choice_match_scorer import ChoiceMatchScorer
 from benchmark.scorers.execution_scorer import ExecutionScorer
-from benchmark.scorers.exact_match_scorer import ExactMatchScorer
 from benchmark.scorers.keyword_match_scorer import KeywordMatchScorer
+from benchmark.scorers.math_scorer import MathScorer
 
 console = Console()
 logger = logging.getLogger(__name__)
 
 DIMENSION_REGISTRY: dict[str, tuple] = {
-    "reasoning": (GSM8KAdapter, ExactMatchScorer, SingleTurnEvaluator),
+    "reasoning": (MATHAdapter, MathScorer, SingleTurnEvaluator),
     "backend-dev": (BigCodeBenchAdapter, ExecutionScorer, SingleTurnEvaluator),
-    "system-architecture": (MMLUAdapter, ChoiceMatchScorer, SingleTurnEvaluator),
+    "system-architecture": (MMLUProAdapter, ChoiceMatchScorer, SingleTurnEvaluator),
     "frontend-dev": (FrontCodeAdapter, KeywordMatchScorer, SingleTurnEvaluator),
 }
 
 DATASET_REGISTRY: dict[str, str] = {
-    "reasoning": "gsm8k",
+    "reasoning": "math",
     "backend-dev": "bigcodebench",
-    "system-architecture": "mmlu",
+    "system-architecture": "mmlu-pro",
     "frontend-dev": "frontcode",
 }
 
@@ -291,9 +291,9 @@ async def _run_evaluation(
 def list_datasets() -> None:
     """列出可用数据集."""
     console.print("[bold]Available datasets:[/bold]")
-    console.print("  [cyan]reasoning:[/cyan]           GSM8K (hardest 5 tasks by step count)")
-    console.print("  [cyan]backend-dev:[/cyan]        BigCodeBench-Hard (5 tasks)")
-    console.print("  [cyan]system-architecture:[/cyan] MMLU (computer_science + abstract_algebra)")
+    console.print("  [cyan]reasoning:[/cyan]           MATH (Level 3-5, 15 tasks)")
+    console.print("  [cyan]backend-dev:[/cyan]        BigCodeBench-Hard (15 tasks)")
+    console.print("  [cyan]system-architecture:[/cyan] MMLU-Pro (CS/Math/Physics, 15 tasks)")
     console.print("  [cyan]frontend-dev:[/cyan]       FrontCode (自建前端评测)")
 
 

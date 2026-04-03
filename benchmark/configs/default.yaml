@@ -11,7 +11,7 @@ dataset_root: "benchmark/datasets"
 # 维度权重配置
 dimensions:
   reasoning:
-    adapter: "gsm8k"
+    adapter: "math"
     auto_weight: 0.8
     judge_weight: 0.2
 
@@ -21,8 +21,7 @@ dimensions:
     judge_weight: 0.2
 
   system-architecture:
-    adapter: "mmlu"
-    subjects: ["college_computer_science", "abstract_algebra"]
+    adapter: "mmlu-pro"
     auto_weight: 0.8
     judge_weight: 0.2
 
