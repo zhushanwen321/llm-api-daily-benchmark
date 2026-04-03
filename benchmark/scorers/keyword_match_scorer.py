@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import List
 
-from benchmark.models.schemas import ScoreResult, TaskDefinition
+from benchmark.models.schemas import ScoreResult, ScoringContext
 from benchmark.scorers.base import BaseScorer
 
 
@@ -30,23 +30,16 @@ class KeywordMatchScorer(BaseScorer):
         self.use_regex = use_regex
         self.case_sensitive = case_sensitive
 
-    def score(
-        self,
-        model_output: str,
-        expected: str,  # noqa: ARG002 — 未使用
-        task: TaskDefinition,
-    ) -> ScoreResult:
+    def score(self, ctx: ScoringContext) -> ScoreResult:
         """对模型输出进行评分.
 
         Args:
-            model_output: 模型生成的代码.
-            expected: 未使用.
-            task: 原始任务定义.
+            ctx: 统一评分上下文.
 
         Returns:
             ScoreResult 包含分数、是否通过、详情.
         """
-        keywords: List[str] = task.metadata.get("keywords", [])
+        keywords: List[str] = ctx.task.metadata.get("keywords", [])
         if not keywords:
             return ScoreResult(
                 score=0.0,
@@ -55,7 +48,7 @@ class KeywordMatchScorer(BaseScorer):
                 reasoning="No keywords to match"
             )
 
-        search_text = model_output if self.case_sensitive else model_output.lower()
+        search_text = ctx.model_answer if self.case_sensitive else ctx.model_answer.lower()
         matched = []
         matched_indices = []
 
