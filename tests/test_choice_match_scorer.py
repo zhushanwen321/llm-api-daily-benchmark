@@ -1,7 +1,6 @@
-# tests/test_choice_match_scorer.py
 import pytest
 
-from benchmark.models.schemas import TaskDefinition
+from benchmark.models.schemas import ScoringContext, TaskDefinition
 from benchmark.scorers.choice_match_scorer import ChoiceMatchScorer
 
 
@@ -16,40 +15,49 @@ def _make_task() -> TaskDefinition:
     )
 
 
+def _make_ctx(model_answer: str, expected: str = "B") -> ScoringContext:
+    return ScoringContext(
+        model_answer=model_answer,
+        raw_output=model_answer,
+        expected=expected,
+        task=_make_task(),
+    )
+
+
 def test_correct_choice():
     scorer = ChoiceMatchScorer()
-    task = _make_task()
-    result = scorer.score("B", "B", task)
+    ctx = _make_ctx("B", "B")
+    result = scorer.score(ctx)
     assert result.passed is True
     assert result.score == 100.0
 
 
 def test_correct_choice_with_explanation():
     scorer = ChoiceMatchScorer()
-    task = _make_task()
-    result = scorer.score("The answer is B because...", "B", task)
+    ctx = _make_ctx("The answer is B because...", "B")
+    result = scorer.score(ctx)
     assert result.passed is True
 
 
 def test_case_insensitive():
     scorer = ChoiceMatchScorer()
-    task = _make_task()
-    result = scorer.score("b", "B", task)
+    ctx = _make_ctx("b", "B")
+    result = scorer.score(ctx)
     assert result.passed is True
 
 
 def test_wrong_choice():
     scorer = ChoiceMatchScorer()
-    task = _make_task()
-    result = scorer.score("A", "B", task)
+    ctx = _make_ctx("A", "B")
+    result = scorer.score(ctx)
     assert result.passed is False
     assert result.score == 0.0
 
 
 def test_no_choice_letter():
     scorer = ChoiceMatchScorer()
-    task = _make_task()
-    result = scorer.score("maybe 42", "B", task)
+    ctx = _make_ctx("maybe 42", "B")
+    result = scorer.score(ctx)
     assert result.passed is False
     assert "No choice letter" in result.details["error"]
 

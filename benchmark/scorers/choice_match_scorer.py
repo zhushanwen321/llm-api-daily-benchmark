@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from benchmark.models.schemas import ScoreResult, TaskDefinition
+from benchmark.models.schemas import ScoreResult, ScoringContext
 from benchmark.scorers.base import BaseScorer
 
 
@@ -19,16 +19,11 @@ class ChoiceMatchScorer(BaseScorer):
     # 匹配独立的选项字母（前后不是字母字符）
     _CHOICE_RE = re.compile(r"\b([A-Z])\b", re.IGNORECASE)
 
-    def score(
-        self,
-        model_output: str,
-        expected: str,
-        task: TaskDefinition,  # noqa: ARG002 — 基类接口要求
-    ) -> ScoreResult:
-        expected_letter = expected.strip().upper()
+    def score(self, ctx: ScoringContext) -> ScoreResult:
+        expected_letter = ctx.expected.strip().upper()
 
         # 从输出中提取所有选项字母
-        matches = self._CHOICE_RE.findall(model_output)
+        matches = self._CHOICE_RE.findall(ctx.model_answer)
 
         if not matches:
             return ScoreResult(
@@ -36,7 +31,7 @@ class ChoiceMatchScorer(BaseScorer):
                 passed=False,
                 details={
                     "error": "No choice letter found in output",
-                    "raw_output": model_output[:200],
+                    "raw_output": ctx.model_answer[:200],
                 },
                 reasoning="Model output contains no choice letter",
             )
