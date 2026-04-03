@@ -89,3 +89,16 @@ class ApiCallMetrics(BaseModel):
     tokens_per_second: float = 0.0
     ttft_content: float = 0.0
     created_at: datetime
+
+
+class ScoringContext(BaseModel):
+    """统一的评分上下文."""
+
+    model_answer: str  # 解析后的答案
+    raw_output: str  # 模型原始输出
+    expected: str  # 期望输出
+    task: TaskDefinition  # 任务定义
+    reasoning_content: str = ""  # 推理过程（从 API reasoning_content 获取）
+    gen_metrics: dict | None = None  # API 调用指标（prompt_tokens, completion_tokens, ttft 等）
+    execution_trace: list[dict] | None = None  # 工具调用记录（未来扩展用）
+    execution_metrics: dict | None = None  # 执行指标（未来扩展用）
