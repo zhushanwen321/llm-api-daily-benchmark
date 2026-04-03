@@ -1,37 +1,24 @@
 """评分器基类。
 
-所有评分器必须继承 BaseScorer 并实现 score/get_metric_name 方法。
-评分结果统一使用 benchmark.models.schemas.ScoreResult。
+Stage 3 重构: score() 接收 ScoringContext 替代原来的 3 个参数。
 """
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from benchmark.models.schemas import ScoreResult, TaskDefinition
+from benchmark.models.schemas import ScoreResult, ScoringContext
 
 
 class BaseScorer(ABC):
-    """评分器抽象基类。
-
-    子类必须实现：
-    - score(): 对模型输出进行评分
-    - get_metric_name(): 返回指标名称
-    """
+    """评分器抽象基类."""
 
     @abstractmethod
-    def score(
-        self,
-        model_output: str,
-        expected: str,
-        task: TaskDefinition,
-    ) -> ScoreResult:
-        """对模型输出进行评分。
+    def score(self, ctx: ScoringContext) -> ScoreResult:
+        """对模型输出进行评分.
 
         Args:
-            model_output: 模型生成的文本/代码。
-            expected: 期望输出（答案或空字符串）。
-            task: 原始任务定义。
+            ctx: 统一评分上下文，包含 model_answer/raw_output/expected/task.
 
         Returns:
             ScoreResult 包含分数、是否通过、详情、理由。
