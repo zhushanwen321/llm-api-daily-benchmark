@@ -23,7 +23,7 @@ from benchmark.adapters.gsm8k_adapter import GSM8KAdapter
 from benchmark.adapters.mmlu_adapter import MMLUAdapter
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.core.logging_config import setup_logging
-from benchmark.core.response_parser import parse_response
+from benchmark.core.evaluator import SingleTurnEvaluator
 from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.choice_match_scorer import ChoiceMatchScorer
@@ -35,10 +35,10 @@ console = Console()
 logger = logging.getLogger(__name__)
 
 DIMENSION_REGISTRY: dict[str, tuple] = {
-    "reasoning": (GSM8KAdapter, ExactMatchScorer),
-    "backend-dev": (BigCodeBenchAdapter, ExecutionScorer),
-    "system-architecture": (MMLUAdapter, ChoiceMatchScorer),
-    "frontend-dev": (FrontCodeAdapter, KeywordMatchScorer),
+    "reasoning": (GSM8KAdapter, ExactMatchScorer, SingleTurnEvaluator),
+    "backend-dev": (BigCodeBenchAdapter, ExecutionScorer, SingleTurnEvaluator),
+    "system-architecture": (MMLUAdapter, ChoiceMatchScorer, SingleTurnEvaluator),
+    "frontend-dev": (FrontCodeAdapter, KeywordMatchScorer, SingleTurnEvaluator),
 }
 
 DATASET_REGISTRY: dict[str, str] = {
@@ -112,36 +112,29 @@ async def _evaluate_task(
     model: str,
     llm: LLMEvalAdapter,
     scorer: Any,
+    evaluator: Any,
     db: Database,
     run_id: str,
     total: int,
     debug: bool,
 ) -> dict[str, Any]:
-    """单个 task 的异步评测协程。返回包含结果的字典，失败时返回 error 字段。"""
+    """单个 task 的异步评测协程。"""
     try:
         logger.debug(f"处理任务 {task_idx + 1}/{total}: {task.task_id}")
         start_time = datetime.now()
-        gen_response = await llm.agenerate(task.prompt, model=model)
+
+        # 委托给 Evaluator 执行评测编排
+        ctx = await evaluator.evaluate(task, model, llm)
         execution_time = (datetime.now() - start_time).total_seconds()
-        model_output = gen_response.content
 
         logger.debug(
-            f"任务 {task.task_id} 生成完成，输出长度: {len(model_output)} 字符"
+            f"任务 {task.task_id} 生成完成，输出长度: {len(ctx.raw_output)} 字符"
         )
         if debug:
-            logger.debug(f"模型输出:\n{model_output[:500]}...")
+            logger.debug(f"模型输出:\n{ctx.raw_output[:500]}...")
 
-        # 推理内容直接从 API 层获取（adapter 已分离）
-        think_content = gen_response.reasoning_content
-
-        # 从 content 中解析最终答案
-        parsed = parse_response(model_output, task.dimension)
-        logger.debug(
-            f"任务 {task.task_id} 解析完成: think_len={len(think_content)}, answer_len={len(parsed.answer)}"
-        )
-
-        # 使用解析后的 answer 进行评分
-        score_result = scorer.score(parsed.answer, task.expected_output, task)
+        # 使用 ScoringContext 评分
+        score_result = scorer.score(ctx)
         logger.debug(
             f"任务 {task.task_id} 评分结果: score={score_result.score}, passed={score_result.passed}"
         )
@@ -152,9 +145,9 @@ async def _evaluate_task(
             run_id=run_id,
             task_id=task.task_id,
             task_content=task.prompt,
-            model_output=model_output,
-            model_think=think_content,
-            model_answer=parsed.answer,
+            model_output=ctx.raw_output,
+            model_think=ctx.reasoning_content,
+            model_answer=ctx.model_answer,
             functional_score=score_result.score,
             final_score=score_result.score,
             passed=score_result.passed,
@@ -164,25 +157,19 @@ async def _evaluate_task(
         )
         db.save_result(result)
 
-        tps = (
-            gen_response.tokens_per_second
-            if gen_response.tokens_per_second > 0
-            else (
-                gen_response.completion_tokens / execution_time
-                if execution_time > 0
-                else 0.0
-            )
-        )
+        # 从 ScoringContext.gen_metrics 恢复 API 指标
+        gm = ctx.gen_metrics or {}
+        tps = gm.get("tokens_per_second", 0.0)
         db.save_metrics(
             ApiCallMetrics(
                 result_id=result_id,
-                prompt_tokens=gen_response.prompt_tokens,
-                completion_tokens=gen_response.completion_tokens,
-                reasoning_tokens=gen_response.reasoning_tokens,
-                reasoning_content=gen_response.reasoning_content,
-                duration=gen_response.duration,
+                prompt_tokens=gm.get("prompt_tokens", 0),
+                completion_tokens=gm.get("completion_tokens", 0),
+                reasoning_tokens=gm.get("reasoning_tokens", 0),
+                reasoning_content=ctx.reasoning_content,
+                duration=gm.get("duration", execution_time),
                 tokens_per_second=tps,
-                ttft_content=gen_response.ttft_content,
+                ttft_content=gm.get("ttft_content", 0.0),
                 created_at=datetime.now(),
             )
         )
@@ -194,8 +181,8 @@ async def _evaluate_task(
             f"  [{task_idx + 1}/{total}] {task.task_id} | "
             f"Score: {score_result.score:.0f} | {status_icon} | "
             f"Time: {execution_time:.1f}s | "
-            f"TTFT-R: {gen_response.ttft:.2f}s | "
-            f"TTFT-C: {gen_response.ttft_content:.2f}s | "
+            f"TTFT-R: {gm.get('ttft', 0.0):.2f}s | "
+            f"TTFT-C: {gm.get('ttft_content', 0.0):.2f}s | "
             f"Speed: {tps:.1f} tok/s"
         )
 
@@ -205,7 +192,7 @@ async def _evaluate_task(
             "task_id": task.task_id,
         }
     except Exception as exc:
-        logger.error(f"任务 {task.task_id if hasattr(task, 'task_id') else task_idx} 失败: {exc}")
+        logger.error(f"任务 {getattr(task, 'task_id', task_idx)} 失败: {exc}")
         status_msg = f"[red]ERROR: {type(exc).__name__}: {exc}[/red]"
         console.print(f"  [{task_idx + 1}/{total}] {getattr(task, 'task_id', '?')} | {status_msg}")
         return {
@@ -220,12 +207,13 @@ async def _run_evaluation(
     model: str, dimension: str, samples: int, debug: bool
 ) -> None:
     """异步评测主流程，使用 asyncio.gather 并发执行所有 task。"""
-    adapter_cls, scorer_cls = DIMENSION_REGISTRY[dimension]
+    adapter_cls, scorer_cls, evaluator_cls = DIMENSION_REGISTRY[dimension]
     adapter = adapter_cls()
     scorer = scorer_cls()
+    evaluator = evaluator_cls()
     llm = LLMEvalAdapter(model=model)
 
-    logger.debug(f"加载适配器: {adapter_cls.__name__}, 评分器: {scorer_cls.__name__}")
+    logger.debug(f"加载适配器: {adapter_cls.__name__}, 评分器: {scorer_cls.__name__}, 编排器: {evaluator_cls.__name__}")
 
     tasks = adapter.load()[:samples]
     if not tasks:
@@ -253,7 +241,7 @@ async def _run_evaluation(
         db.create_run(run)
 
         coros = [
-            _evaluate_task(i, task, model, llm, scorer, db, run_id, len(tasks), debug)
+            _evaluate_task(i, task, model, llm, scorer, evaluator, db, run_id, len(tasks), debug)
             for i, task in enumerate(tasks)
         ]
 
