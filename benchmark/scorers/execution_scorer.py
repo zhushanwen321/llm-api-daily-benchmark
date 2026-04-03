@@ -7,7 +7,7 @@ import subprocess
 import sys
 import tempfile
 
-from benchmark.models.schemas import ScoreResult, TaskDefinition
+from benchmark.models.schemas import ScoreResult, ScoringContext
 from benchmark.scorers.base import BaseScorer
 
 
@@ -22,14 +22,9 @@ class ExecutionScorer(BaseScorer):
     def __init__(self, timeout: int = 30) -> None:
         self.timeout = timeout
 
-    def score(
-        self,
-        model_output: str,
-        expected: str,  # noqa: ARG002 — 基类接口要求
-        task: TaskDefinition,
-    ) -> ScoreResult:
+    def score(self, ctx: ScoringContext) -> ScoreResult:
         # 模型输出为空时直接判 0 分，避免仅执行测试代码意外通过
-        if not model_output.strip():
+        if not ctx.model_answer.strip():
             return ScoreResult(
                 score=0.0,
                 passed=False,
@@ -37,16 +32,16 @@ class ExecutionScorer(BaseScorer):
                 reasoning="Model produced no code",
             )
 
-        test_code = task.metadata.get("test", "")
-        entry_point = task.metadata.get("entry_point", "")
+        test_code = ctx.task.metadata.get("test", "")
+        entry_point = ctx.task.metadata.get("entry_point", "")
 
-        full_code = self._build_executable(model_output, test_code, entry_point)
+        full_code = self._build_executable(ctx.model_answer, test_code, entry_point)
 
         fd, temp_path = tempfile.mkstemp(suffix=".py", prefix="bench_exec_")
         try:
             with os.fdopen(fd, "w") as f:
                 f.write(full_code)
-            return self._run_and_score(temp_path, task.task_id)
+            return self._run_and_score(temp_path, ctx.task.task_id)
         finally:
             if os.path.exists(temp_path):
                 os.unlink(temp_path)
