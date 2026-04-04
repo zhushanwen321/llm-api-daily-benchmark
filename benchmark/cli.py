@@ -377,3 +377,45 @@ def report(models: str | None, dimensions: str | None, date_range: str | None, o
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(1)
+
+
+@cli.group()
+def scheduler() -> None:
+    """定时调度器管理。"""
+
+
+@scheduler.command()
+def start() -> None:
+    """启动定时调度器。"""
+    from benchmark.core.scheduler import BenchmarkScheduler
+    sched = BenchmarkScheduler()
+    sched.start()
+    if sched.enabled:
+        console.print("[green]调度器已启动[/green]")
+        console.print(f"  Cron: {sched.cron}")
+        console.print(f"  Models: {sched.models}")
+        console.print(f"  Dimensions: {sched.dimensions}")
+        console.print(f"  Samples: {sched.samples}")
+    else:
+        console.print("[yellow]调度器未启用 (设置 SCHEDULER_ENABLED=true)[/yellow]")
+
+
+@scheduler.command()
+def stop() -> None:
+    """停止定时调度器。"""
+    from benchmark.core.scheduler import BenchmarkScheduler
+    sched = BenchmarkScheduler()
+    sched.stop()
+    console.print("[green]调度器已停止[/green]")
+
+
+@scheduler.command()
+def status() -> None:
+    """查看调度器状态。"""
+    from benchmark.core.scheduler import BenchmarkScheduler
+    sched = BenchmarkScheduler()
+    console.print(f"  Enabled: {sched.enabled}")
+    console.print(f"  Cron: {sched.cron}")
+    console.print(f"  Models: {sched.models}")
+    console.print(f"  Dimensions: {sched.dimensions}")
+    console.print(f"  Samples: {sched.samples}")

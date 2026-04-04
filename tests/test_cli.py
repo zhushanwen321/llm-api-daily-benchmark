@@ -35,3 +35,19 @@ class TestDimensionAll:
         result = runner.invoke(cli, ["evaluate", "--model", "glm/glm-4.7", "--dimension", "reasoning"])
         # 不应出现 Click 参数校验错误
         assert "Invalid value" not in result.output
+
+
+class TestSchedulerCommands:
+    """scheduler 子命令测试。"""
+
+    def test_scheduler_start(self):
+        """scheduler start 在未启用时应正常退出（exit 0）。"""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["scheduler", "start"])
+        assert result.exit_code == 0
+
+    def test_scheduler_status(self):
+        """scheduler status 应正常退出（exit 0）。"""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["scheduler", "status"])
+        assert result.exit_code == 0
