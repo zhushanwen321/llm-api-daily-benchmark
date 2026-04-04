@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +46,24 @@ def load_models_config(models_path: str | Path | None = None) -> dict[str, Any]:
         )
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+_ENV_VAR_RE = re.compile(r"^\$\{(\w+)\}$")
+
+
+def _resolve_env_var(value: str, field_name: str = "api_key") -> str:
+    """若 value 匹配 ${ENV_VAR} 则从环境变量解析，否则原样返回。"""
+    m = _ENV_VAR_RE.match(value)
+    if m:
+        var_name = m.group(1)
+        resolved = os.environ.get(var_name)
+        if resolved is None:
+            raise ValueError(
+                f"Environment variable '{var_name}' is not set "
+                f"(referenced in {field_name})"
+            )
+        return resolved
+    return value
 
 
 def get_model_config(model_name: str, models_path: str | Path | None = None) -> dict[str, Any]:
@@ -92,7 +112,7 @@ def get_model_config(model_name: str, models_path: str | Path | None = None) -> 
     default_max_tokens = defaults.get("max_tokens", 131072)
     return {
         "provider": provider_name,
-        "api_key": provider_cfg["api_key"],
+        "api_key": _resolve_env_var(provider_cfg["api_key"], "api_key"),
         "api_base": provider_cfg["api_base"],
         "max_tokens": model_cfg.get("max_tokens", default_max_tokens),
         "rate_limit": float(provider_cfg["rate_limit"]) if "rate_limit" in provider_cfg else None,

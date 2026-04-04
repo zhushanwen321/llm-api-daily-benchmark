@@ -103,3 +103,48 @@ class TestGetModelConfig:
         })
         with pytest.raises(ValueError, match="Model 'glm-4-flash' not found under provider 'glm'"):
             get_model_config("glm/glm-4-flash", models_path=cfg_path)
+
+
+class TestEnvVarOverride:
+    def test_env_var_resolved(self, tmp_path, monkeypatch):
+        """api_key 为 ${ENV_VAR} 格式时应从环境变量解析。"""
+        monkeypatch.setenv("MY_API_KEY", "resolved-key-123")
+        cfg_path = _write_test_config(tmp_path, {
+            "providers": {
+                "glm": {
+                    "api_key": "${MY_API_KEY}",
+                    "api_base": "https://api.test.com/v1/",
+                    "models": {"glm-4.7": {}},
+                }
+            }
+        })
+        result = get_model_config("glm/glm-4.7", models_path=cfg_path)
+        assert result["api_key"] == "resolved-key-123"
+
+    def test_plain_key_unchanged(self, tmp_path):
+        """api_key 为明文字符串时应原样返回。"""
+        cfg_path = _write_test_config(tmp_path, {
+            "providers": {
+                "glm": {
+                    "api_key": "plain-key",
+                    "api_base": "https://api.test.com/v1/",
+                    "models": {"glm-4.7": {}},
+                }
+            }
+        })
+        result = get_model_config("glm/glm-4.7", models_path=cfg_path)
+        assert result["api_key"] == "plain-key"
+
+    def test_env_var_not_set_raises(self, tmp_path):
+        """${ENV_VAR} 对应的环境变量不存在时应抛出 ValueError。"""
+        cfg_path = _write_test_config(tmp_path, {
+            "providers": {
+                "glm": {
+                    "api_key": "${MISSING_KEY}",
+                    "api_base": "https://api.test.com/v1/",
+                    "models": {"glm-4.7": {}},
+                }
+            }
+        })
+        with pytest.raises(ValueError, match="MISSING_KEY"):
+            get_model_config("glm/glm-4.7", models_path=cfg_path)
