@@ -5,13 +5,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import TYPE_CHECKING
-
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-
-if TYPE_CHECKING:
-    pass
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +68,15 @@ class BenchmarkScheduler:
     def _run_scheduled_evaluation(self) -> None:
         """调度触发时执行的全量评测。"""
         logger.info("定时评测触发: models=%s, dimensions=%s", self.models, self.dimensions)
-        from benchmark.cli import _run_multi_evaluation
+        try:
+            from benchmark.cli import _run_multi_evaluation
 
-        dimensions = self.dimensions
-        if dimensions == ["all"]:
-            from benchmark.cli import DIMENSION_REGISTRY
-            dimensions = list(DIMENSION_REGISTRY.keys())
+            dimensions = self.dimensions
+            if dimensions == ["all"]:
+                from benchmark.cli import DIMENSION_REGISTRY
+                dimensions = list(DIMENSION_REGISTRY.keys())
 
-        asyncio.run(_run_multi_evaluation(self.models, dimensions, self.samples, debug=False))
-        logger.info("定时评测完成")
+            asyncio.run(_run_multi_evaluation(self.models, dimensions, self.samples, debug=False))
+            logger.info("定时评测完成")
+        except Exception:
+            logger.exception("定时评测执行失败")
