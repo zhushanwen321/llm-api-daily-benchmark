@@ -1,0 +1,4 @@
+Dependency import verification:
+  python -c "import pydantic, click, rich, streamlit, datasets, yaml, requests, pandas"
+
+Result: OK

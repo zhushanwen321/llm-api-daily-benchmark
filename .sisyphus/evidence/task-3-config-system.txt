@@ -1,0 +1,43 @@
+Task 3 Verification Evidence
+===========================
+
+Date: Tue Mar 31 2026
+
+TEST 1: Default Config Loading
+------------------------------
+Command: python -c "from benchmark.config import load_config; cfg = load_config(); ..."
+Result: Config loaded OK
+Dimensions: ['reasoning', 'backend-dev']
+
+Assertion checks:
+- cfg['model'] == 'glm-4.7' ✓
+- cfg['temperature'] == 0.0 ✓
+- 'reasoning' in cfg['dimensions'] ✓
+- 'backend-dev' in cfg['dimensions'] ✓
+
+TEST 2: Models Config Loading (using example file)
+-------------------------------------------------
+Command: python -c "from benchmark.config import load_models_config; cfg = load_models_config('benchmark/configs/models.yaml.example'); ..."
+Result: Models config loaded OK
+Available models: ['glm-4.7', 'gpt-4']
+
+Assertion checks:
+- 'models' in cfg ✓
+- 'glm-4.7' in cfg['models'] ✓
+
+TEST 3: Error Handling - models.yaml not found
+----------------------------------------------
+When get_model_config('glm-4.7') is called without actual models.yaml:
+FileNotFoundError: Models config not found: .../benchmark/configs/models.yaml. Copy configs/models.yaml.example to configs/models.yaml and fill in your API keys.
+
+This is CORRECT behavior - it guides user to set up their API keys.
+
+FILES CREATED
+-------------
+- benchmark/config.py (61 lines)
+- benchmark/configs/default.yaml (27 lines)
+
+COMMIT
+------
+Hash: 512da6f
+Message: feat(benchmark): config system with YAML loading

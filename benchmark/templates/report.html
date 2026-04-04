@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>LLM Benchmark Report</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; max-width: 1200px; margin: 0 auto; padding: 20px; }
+        table { border-collapse: collapse; width: 100%; margin: 16px 0; }
+        th, td { border: 1px solid #ddd; padding: 8px 12px; text-align: center; }
+        th { background: #f5f5f5; font-weight: 600; }
+        .pass { color: #16a34a; font-weight: bold; }
+        .fail { color: #dc2626; }
+        .section { margin: 32px 0; }
+        .section h2 { border-bottom: 2px solid #e5e5e5; padding-bottom: 8px; }
+        .significant { background: #fef3c7; }
+    </style>
+</head>
+<body>
+    <h1>LLM Benchmark Report</h1>
+    <p>Generated: {{ generated_at }}</p>
+
+    <div class="section">
+        <h2>1. Overview</h2>
+        <p>Models: {{ models | join(', ') }}</p>
+        <p>Dimensions: {{ dimensions | join(', ') }}</p>
+        <p>Date range: {{ date_range }}</p>
+    </div>
+
+    <div class="section">
+        <h2>2. Score Summary</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Model</th>
+                    {% for dim in dimensions %}
+                    <th>{{ dim }}</th>
+                    {% endfor %}
+                    <th>Average</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in score_table %}
+                <tr>
+                    <td>{{ row.model }}</td>
+                    {% for dim in dimensions %}
+                    <td>{{ row.scores[dim].mean | round(1) }} ({{ row.scores[dim].passed }}/{{ row.scores[dim].total }})</td>
+                    {% endfor %}
+                    <td><strong>{{ row.average | round(1) }}</strong></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>3. Statistical Tests</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Model A</th>
+                    <th>Model B</th>
+                    <th>p-value</th>
+                    <th>Effect Size (d)</th>
+                    <th>Significant?</th>
+                    <th>Conclusion</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for test in stat_tests %}
+                <tr class="{{ 'significant' if test.is_significant else '' }}">
+                    <td>{{ test.model_a }}</td>
+                    <td>{{ test.model_b }}</td>
+                    <td>{{ test.p_value | round(4) }}</td>
+                    <td>{{ test.effect_size | round(2) }}</td>
+                    <td>{{ 'Yes' if test.is_significant else 'No' }}</td>
+                    <td>{{ test.conclusion }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section">
+        <h2>4. Detailed Results</h2>
+        {% for dim in dimensions %}
+        <h3>{{ dim }}</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Task ID</th>
+                    {% for model in models %}
+                    <th>{{ model }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for task_id, results in detailed[dim].items() %}
+                <tr>
+                    <td>{{ task_id }}</td>
+                    {% for model in models %}
+                    <td class="{{ 'pass' if results[model].passed else 'fail' }}">
+                        {{ results[model].score | round(0) }}
+                    </td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% endfor %}
+    </div>
+</body>
+</html>

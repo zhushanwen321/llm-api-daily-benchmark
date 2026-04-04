@@ -1,0 +1,24 @@
+# 模型配置模板
+# 复制为 models.yaml 并填入真实 API key
+# models.yaml 已加入 .gitignore，不会被提交
+#
+# 模型标识格式: provider/model（如 glm/glm-4.7）
+# rate_limit: 可选，每秒允许的请求数，不配置则不限流
+
+providers:
+  glm:
+    api_key: "YOUR_GLM_API_KEY_HERE"
+    api_base: "https://open.bigmodel.cn/api/paas/v4/"
+    rate_limit: 2
+    models:
+      glm-4.7:
+        max_tokens: 4096
+      glm-4-flash: {}
+
+  openai:
+    api_key: "YOUR_OPENAI_API_KEY_HERE"
+    api_base: "https://api.openai.com/v1/"
+    models:
+      gpt-4:
+        max_tokens: 4096
+      gpt-4o: {}

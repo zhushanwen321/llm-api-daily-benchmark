@@ -1,0 +1,13 @@
+Directory structure verification:
+  test -d benchmark/adapters .................... EXIT_CODE: 0
+  test -d benchmark/scorers ...................... EXIT_CODE: 0
+  test -d benchmark/models ...................... EXIT_CODE: 0
+  test -d benchmark/core ........................ EXIT_CODE: 0
+  test -d benchmark/visualization ............... EXIT_CODE: 0
+  test -d benchmark/configs ..................... EXIT_CODE: 0
+  test -d benchmark/data ........................ EXIT_CODE: 0
+  test -d benchmark/datasets .................... EXIT_CODE: 0
+  test -f benchmark/__init__.py ................ EXIT_CODE: 0
+  test -f benchmark/__main__.py ................. EXIT_CODE: 0
+
+Result: All directories and files exist

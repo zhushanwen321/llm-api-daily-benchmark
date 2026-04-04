@@ -1,0 +1,7 @@
+Gitignore verification:
+  cp benchmark/configs/models.yaml.example benchmark/configs/models.yaml
+  echo "test_key_123" >> benchmark/configs/models.yaml
+  git status benchmark/configs/models.yaml
+
+Result: models.yaml not tracked (git status shows clean working tree)
+  The file is correctly excluded by .gitignore

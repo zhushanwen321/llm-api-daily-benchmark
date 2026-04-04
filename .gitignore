@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+
+# 敏感配置（API keys）
+benchmark/configs/models.yaml
+
+# 数据和日志
+benchmark/data/*.db
+# 忽略下载数据集缓存，但保留自建数据集的 JSON 文件
+benchmark/datasets/gsm8k/
+benchmark/datasets/bigcodebench/
+benchmark/datasets/mmlu/
+benchmark/logs/*.log
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# 环境变量（代理等）
+.env
+
+# 运行时日志（项目根目录）
+logs/
+
+# Sisyphus 工具状态（但保留规格文档）
+.sisyphus/boulder.json
+.sisyphus/drafts/
+.sisyphus/evidence/
+.sisyphus/plans/
+
+# OS
+.DS_Store
+Thumbs.db
