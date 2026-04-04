@@ -81,7 +81,7 @@ def cli(ctx: click.Context, debug: bool) -> None:
 @click.option(
     "--dimension",
     required=True,
-    type=click.Choice(["reasoning", "backend-dev", "system-architecture", "frontend-dev"]),
+    type=click.Choice(["reasoning", "backend-dev", "system-architecture", "frontend-dev", "all"]),
     help="评测维度",
 )
 @click.option("--samples", default=15, help="评测题目数量")
@@ -99,11 +99,15 @@ def evaluate(
     if not debug:
         debug = ctx.obj.get("debug", False)
     _setup_proxy()
-    if dimension not in DIMENSION_REGISTRY:
-        console.print(f"[red]Unknown dimension: {dimension}[/red]")
-        raise SystemExit(1)
 
-    asyncio.run(_run_evaluation(model, dimension, samples, debug))
+    models = [m.strip() for m in model.split(",") if m.strip()]
+
+    if dimension == "all":
+        dimensions = list(DIMENSION_REGISTRY.keys())
+    else:
+        dimensions = [dimension]
+
+    asyncio.run(_run_multi_evaluation(models, dimensions, samples, debug))
 
 
 async def _evaluate_task(
@@ -285,6 +289,18 @@ async def _run_evaluation(
         raise
     finally:
         db.close()
+
+
+async def _run_multi_evaluation(
+    models: list[str], dimensions: list[str], samples: int, debug: bool
+) -> None:
+    """多模型 x 多维度并发评测。"""
+    coros = [
+        _run_evaluation(model, dim, samples, debug)
+        for model in models
+        for dim in dimensions
+    ]
+    await asyncio.gather(*coros)
 
 
 @cli.command("list-datasets")
