@@ -178,7 +178,7 @@ restore_hosts() {
 cleanup() {
     echo "[proxy] 清理代理环境..."
     unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY 2>/dev/null || true
-000    restore_hosts
+    restore_hosts
     echo "[proxy] 清理完成"
 }
 
@@ -193,7 +193,6 @@ export http_proxy="${PROXY}" https_proxy="${PROXY}" all_proxy="${PROXY}"
 export HTTP_PROXY="${PROXY}" HTTPS_PROXY="${PROXY}" ALL_PROXY="${PROXY}"
 echo "[proxy] 已设置代理: ${PROXY}"
 
-000
 docker pull "${IMAGE}:${TAG}"
 
 unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
@@ -225,7 +224,6 @@ EOF
 echo "[3/4] 停止旧容器..."
 docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" down 2>/dev/null || true
 
- 000
 echo "[4/4] 启动新容器..."
 docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" up -d
 
