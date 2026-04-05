@@ -532,6 +532,18 @@ wheels = [
 ]
 
 [[package]]
+name = "faker"
+version = "40.12.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/66/c1/f8224fe97fea2f98d455c22438c1b09b10e14ef2cb95ae4f7cec9aa59659/faker-40.12.0.tar.gz", hash = "sha256:58b5a9054c367bd5fb2e948634105364cc570e78a98a8e5161a74691c45f158f", size = 1962003, upload-time = "2026-03-30T18:00:56.596Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2b/5c/39452a6b6aa76ffa518fa7308e1975b37e9ba77caa6172a69d61e7180221/faker-40.12.0-py3-none-any.whl", hash = "sha256:6238a4058a8b581892e3d78fe5fdfa7568739e1c8283e4ede83f1dde0bfc1a3b", size = 1994601, upload-time = "2026-03-30T18:00:54.804Z" },
+]
+
+[[package]]
 name = "filelock"
 version = "3.25.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1073,6 +1085,7 @@ dependencies = [
 benchmark = [
     { name = "beautifulsoup4" },
     { name = "chardet" },
+    { name = "faker" },
     { name = "flask" },
     { name = "flask-login" },
     { name = "flask-mail" },
@@ -1086,6 +1099,7 @@ benchmark = [
     { name = "pytz" },
     { name = "regex" },
     { name = "rsa" },
+    { name = "scipy" },
     { name = "seaborn" },
     { name = "statsmodels" },
     { name = "werkzeug" },
@@ -1104,6 +1118,7 @@ requires-dist = [
     { name = "chardet", marker = "extra == 'benchmark'", specifier = ">=5.2" },
     { name = "click", specifier = ">=8.0" },
     { name = "datasets", specifier = ">=2.14" },
+    { name = "faker", marker = "extra == 'benchmark'", specifier = ">=20.0" },
     { name = "flask", marker = "extra == 'benchmark'", specifier = ">=3.0" },
     { name = "flask-login", marker = "extra == 'benchmark'", specifier = ">=0.6" },
     { name = "flask-mail", marker = "extra == 'benchmark'", specifier = ">=0.9" },
@@ -1127,6 +1142,7 @@ requires-dist = [
     { name = "requests-mock", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "rich", specifier = ">=13.0" },
     { name = "rsa", marker = "extra == 'benchmark'", specifier = ">=4.9" },
+    { name = "scipy", marker = "extra == 'benchmark'", specifier = ">=1.11" },
     { name = "seaborn", marker = "extra == 'benchmark'", specifier = ">=0.12" },
     { name = "statsmodels", marker = "extra == 'benchmark'", specifier = ">=0.14" },
     { name = "streamlit", specifier = ">=1.28" },

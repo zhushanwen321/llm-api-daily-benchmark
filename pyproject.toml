@@ -52,4 +52,6 @@ benchmark = [
     "chardet>=5.2",
     "Pillow>=10.0",
     "rsa>=4.9",
+    "faker>=20.0",
+    "scipy>=1.11",
 ]
