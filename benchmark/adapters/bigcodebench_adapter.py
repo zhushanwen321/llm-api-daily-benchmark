@@ -8,7 +8,7 @@ import os
 import random
 from typing import List
 
-from datasets import load_dataset
+from benchmark.adapters.hf_loader import load_hf_dataset
 
 from benchmark.adapters.base import DatasetAdapter
 from benchmark.core.prompt_builder import build_structured_prompt
@@ -45,11 +45,10 @@ class BigCodeBenchAdapter(DatasetAdapter):
     def load(self, path: str = "") -> List[TaskDefinition]:
         """加载 BigCodeBench-Hard 子集,过滤重型库后随机选 15 题."""
         cache_dir = path or os.path.join("benchmark", "datasets", "bigcodebench")
-        dataset = load_dataset(
+        dataset = load_hf_dataset(
             "bigcode/bigcodebench-hard",
             split="v0.1.0_hf",
             cache_dir=cache_dir,
-            download_mode="reuse_dataset_if_exists",
         )
 
         # 过滤掉依赖重型库的题目

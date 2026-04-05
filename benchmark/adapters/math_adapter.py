@@ -6,7 +6,7 @@ import os
 import random
 from typing import List
 
-from datasets import load_dataset
+from benchmark.adapters.hf_loader import load_hf_dataset
 
 from benchmark.adapters.base import DatasetAdapter
 from benchmark.core.prompt_builder import build_structured_prompt
@@ -18,11 +18,10 @@ class MATHAdapter(DatasetAdapter):
 
     def load(self, path: str = "") -> List[TaskDefinition]:
         cache_dir = path or os.path.join("benchmark", "datasets", "math")
-        dataset = load_dataset(
+        dataset = load_hf_dataset(
             "nlile/hendrycks-MATH-benchmark",
             split="test",
             cache_dir=cache_dir,
-            download_mode="reuse_dataset_if_exists",
         )
 
         # 筛选 Level 3-5 的题目

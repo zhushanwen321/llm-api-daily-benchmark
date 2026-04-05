@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from typing import List
 
-from datasets import load_dataset
+from benchmark.adapters.hf_loader import load_hf_dataset
 
 from benchmark.adapters.base import DatasetAdapter
 from benchmark.core.prompt_builder import build_structured_prompt
@@ -51,22 +51,20 @@ class MMLUAdapter(DatasetAdapter):
         for subject in self.subjects:
             count = counts.get(subject, 1)
             try:
-                dataset = load_dataset(
+                dataset = load_hf_dataset(
                     "cais/mmlu",
-                    subject,
                     split="test",
                     cache_dir=cache_dir,
-                    download_mode="reuse_dataset_if_exists",
+                    config_name=subject,
                 )
             except Exception as e:
                 # 如果学科不存在，尝试添加前缀
                 try:
-                    dataset = load_dataset(
+                    dataset = load_hf_dataset(
                         "cais/mmlu",
-                        f"mmlu_{subject}",
                         split="test",
                         cache_dir=cache_dir,
-                        download_mode="reuse_dataset_if_exists",
+                        config_name=f"mmlu_{subject}",
                     )
                 except Exception:
                     raise ValueError(
