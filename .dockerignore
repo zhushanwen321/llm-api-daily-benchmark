@@ -1,0 +1,14 @@
+.git
+.github
+.gitignore
+.claude
+docs
+tests
+*.md
+!benchmark/**/*.md
+uv.lock
+*.pyc
+__pycache__
+.env
+.env.*
+.venv
