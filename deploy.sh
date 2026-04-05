@@ -9,6 +9,7 @@
 #   .env                 ← API Key + 调度配置（首次运行自动生成模板）
 #   models.yaml          ← 模型 provider 配置（首次运行自动生成模板）
 #   data/                ← 评测数据持久化（自动创建）
+#   dataset/             ← 数据集缓存（HF 下载后持久化，避免重复下载）
 #
 # 代理处理:
 #   访问 ghcr.io 需要代理，脚本会自动:
@@ -26,6 +27,10 @@ DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROXY="http://192.168.1.102:7890"
 HOSTS_FILE="/etc/hosts"
 HOSTS_BACKUP="/tmp/hosts.benchmark.bak"
+
+# 宎宿主机: dataset 缓存目录; 容器内: benchmark/datasets 数据集加载目录
+DATASET_HOST_DIR="${DEPLOY_DIR}/dataset"
+DATASET_FLAG="${DATASET_HOST_DIR}/.download-complete"
 
 echo "=== LLM Benchmark 部署 ==="
 echo "镜像: ${IMAGE}:${TAG}"
@@ -119,9 +124,32 @@ YAMLEOF
     fi
 }
 
-mkdir -p "${DEPLOY_DIR}/data"
+mkdir -p "${DEPLOY_DIR}/data" "${DATASET_HOST_DIR}"
 init_env
 init_models
+
+# 检测数据集缓存标志，决定是否需要网络下载
+if [ -f "${DATASET_FLAG}" ]; then
+    echo "[dataset] 检测到完整缓存标志 (.download-complete)，将自动启用离线模式"
+    # 在 .env 中设置离线模式（如果用户没有手动设置）
+    if grep -q "^HF_DATASETS_OFFLINE=1" "${DEPLOY_DIR}/.env" 2>/dev/null; then
+        echo "[dataset] .env 已配置 HF_DATASETS_OFFLINE=1"
+    else
+        # 追加或修改离线设置
+        if grep -q "^HF_DATASETS_OFFLINE=" "${DEPLOY_DIR}/.env" 2>/dev/null; then
+            sed -i 's/^HF_DATASETS_OFFLINE=.*/HF_DATASETS_OFFLINE=1/' "${DEPLOY_DIR}/.env"
+        else
+            echo "" >> "${DEPLOY_DIR}/.env"
+            echo "# 数据集已缓存，启用离线模式" >> "${DEPLOY_DIR}/.env"
+            echo "HF_DATASETS_OFFLINE=1" >> "${DEPLOY_DIR}/.env"
+        fi
+        echo "[dataset] 已自动设置 HF_DATASETS_OFFLINE=1"
+    fi
+else
+    echo "[dataset] 未检测到缓存标志，首次运行将从 HuggingFace 下载数据集"
+    echo "[dataset] 下载完成后请在 dataset/ 目录下创建标志文件:"
+    echo "    touch ${DATASET_HOST_DIR}/.download-complete"
+fi
 
 echo "[配置] .env 和 models.yaml 已就绪"
 echo ""
@@ -148,7 +176,7 @@ restore_hosts() {
 cleanup() {
     echo "[proxy] 清理代理环境..."
     unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY 2>/dev/null || true
-    restore_hosts
+000    restore_hosts
     echo "[proxy] 清理完成"
 }
 
@@ -163,6 +191,7 @@ export http_proxy="${PROXY}" https_proxy="${PROXY}" all_proxy="${PROXY}"
 export HTTP_PROXY="${PROXY}" HTTPS_PROXY="${PROXY}" ALL_PROXY="${PROXY}"
 echo "[proxy] 已设置代理: ${PROXY}"
 
+000
 docker pull "${IMAGE}:${TAG}"
 
 unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
@@ -182,6 +211,7 @@ services:
       - "8501:8501"
     volumes:
       - ${DEPLOY_DIR}/data:/app/data
+      - ${DATASET_HOST_DIR}:/app/benchmark/datasets
       - ${DEPLOY_DIR}/.env:/app/.env:ro
       - ${DEPLOY_DIR}/models.yaml:/app/benchmark/configs/models.yaml:ro
     env_file:
@@ -193,6 +223,7 @@ EOF
 echo "[3/4] 停止旧容器..."
 docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" down 2>/dev/null || true
 
+ 000
 echo "[4/4] 启动新容器..."
 docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" up -d
 
@@ -204,6 +235,12 @@ echo "配置文件:"
 echo "  .env:        ${DEPLOY_DIR}/.env"
 echo "  models.yaml: ${DEPLOY_DIR}/models.yaml"
 echo "  数据目录:    ${DEPLOY_DIR}/data/"
+echo "  数据集缓存:  ${DATASET_HOST_DIR}/"
+echo ""
+echo "数据集缓存:"
+echo "  首次运行会自动从 HuggingFace 下载数据集到 dataset/ 目录"
+echo "  下载完成后创建标志: touch ${DATASET_HOST_DIR}/.download-complete"
+echo "  创建标志后，后续运行将自动启用离线模式（HF_DATASETS_OFFLINE=1）"
 echo ""
 echo "修改配置后重启:"
 echo "  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml restart"
