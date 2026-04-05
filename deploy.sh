@@ -212,7 +212,7 @@ services:
     ports:
       - "8501:8501"
     volumes:
-      - ${DEPLOY_DIR}/data:/app/data
+      - ${DEPLOY_DIR}/data:/app/benchmark/data
       - ${DATASET_HOST_DIR}:/app/benchmark/datasets
       - ${DEPLOY_DIR}/.env:/app/.env:ro
       - ${DEPLOY_DIR}/models.yaml:/app/benchmark/configs/models.yaml:ro
