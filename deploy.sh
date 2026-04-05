@@ -28,7 +28,17 @@ PROXY="http://192.168.1.102:7890"
 HOSTS_FILE="/etc/hosts"
 HOSTS_BACKUP="/tmp/hosts.benchmark.bak"
 
-# 宎宿主机: dataset 缓存目录; 容器内: benchmark/datasets 数据集加载目录
+# 容器运行时: 优先 docker，回退 podman
+if command -v docker &>/dev/null; then
+    DOCKER_CMD="docker"
+elif command -v podman &>/dev/null; then
+    DOCKER_CMD="podman"
+else
+    echo "[!] 未找到 docker 或 podman，请先安装其中之一"
+    exit 1
+fi
+
+# 宿主机: dataset 缓存目录; 容器内: benchmark/datasets 数据集加载目录
 DATASET_HOST_DIR="${DEPLOY_DIR}/dataset"
 DATASET_FLAG="${DATASET_HOST_DIR}/.download-complete"
 
@@ -170,7 +180,7 @@ disable_github_hosts() {
 restore_hosts() {
     if [ -f "${HOSTS_BACKUP}" ]; then
         sudo cp "${HOSTS_BACKUP}" "${HOSTS_FILE}"
-        rm -f "${HOSTS_BACKUP}"
+        sudo rm -f "${HOSTS_BACKUP}"
         echo "[proxy] 已还原 ${HOSTS_FILE}"
     fi
 }
@@ -178,7 +188,7 @@ restore_hosts() {
 cleanup() {
     echo "[proxy] 清理代理环境..."
     unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY 2>/dev/null || true
-000    restore_hosts
+    restore_hosts
     echo "[proxy] 清理完成"
 }
 
@@ -193,8 +203,7 @@ export http_proxy="${PROXY}" https_proxy="${PROXY}" all_proxy="${PROXY}"
 export HTTP_PROXY="${PROXY}" HTTPS_PROXY="${PROXY}" ALL_PROXY="${PROXY}"
 echo "[proxy] 已设置代理: ${PROXY}"
 
-000
-docker pull "${IMAGE}:${TAG}"
+${DOCKER_CMD} pull "${IMAGE}:${TAG}"
 
 unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
 restore_hosts
@@ -223,11 +232,10 @@ services:
 EOF
 
 echo "[3/4] 停止旧容器..."
-docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" down 2>/dev/null || true
+${DOCKER_CMD} compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" down 2>/dev/null || true
 
- 000
 echo "[4/4] 启动新容器..."
-docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" up -d
+${DOCKER_CMD} compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" up -d
 
 echo ""
 echo "=== 部署完成 ==="
@@ -245,9 +253,9 @@ echo "  下载完成后创建标志: touch ${DATASET_HOST_DIR}/.download-complet
 echo "  创建标志后，后续运行将自动启用离线模式（HF_DATASETS_OFFLINE=1）"
 echo ""
 echo "修改配置后重启:"
-echo "  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml restart"
+echo "  ${DOCKER_CMD} compose -f ${DEPLOY_DIR}/docker-compose.prod.yml restart"
 echo ""
 echo "常用命令:"
-echo "  日志:  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml logs -f"
-echo "  停止:  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml down"
-echo "  状态:  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml ps"
+echo "  日志:  ${DOCKER_CMD} compose -f ${DEPLOY_DIR}/docker-compose.prod.yml logs -f"
+echo "  停止:  ${DOCKER_CMD} compose -f ${DEPLOY_DIR}/docker-compose.prod.yml down"
+echo "  状态:  ${DOCKER_CMD} compose -f ${DEPLOY_DIR}/docker-compose.prod.yml ps"
