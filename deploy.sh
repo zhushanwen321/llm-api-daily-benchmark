@@ -209,33 +209,23 @@ unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
 restore_hosts
 echo "[1/4] 镜像拉取完成，代理已清除"
 
-# --- 生成 compose 配置并启动 ---
+# --- 停止旧容器并启动新容器 ---
 
-echo "[2/4] 生成 docker-compose.prod.yml..."
-cat > "${DEPLOY_DIR}/docker-compose.prod.yml" <<EOF
-services:
-  benchmark:
-    image: ${IMAGE}:${TAG}
-    container_name: llm-benchmark
-    restart: unless-stopped
-    ports:
-      - "8501:8501"
-    volumes:
-      - ${DEPLOY_DIR}/data:/app/benchmark/data
-      - ${DATASET_HOST_DIR}:/app/benchmark/datasets
-      - ${DEPLOY_DIR}/.env:/app/.env:ro
-      - ${DEPLOY_DIR}/models.yaml:/app/benchmark/configs/models.yaml:ro
-    env_file:
-      - ${DEPLOY_DIR}/.env
-    environment:
-      - PYTHONUNBUFFERED=1
-EOF
+echo "[2/4] 停止旧容器..."
+${DOCKER_CMD} stop llm-benchmark 2>/dev/null && ${DOCKER_CMD} rm llm-benchmark 2>/dev/null || true
 
-echo "[3/4] 停止旧容器..."
-${DOCKER_CMD} compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" down 2>/dev/null || true
-
-echo "[4/4] 启动新容器..."
-${DOCKER_CMD} compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" up -d
+echo "[3/4] 启动新容器..."
+${DOCKER_CMD} run -d \
+    --name llm-benchmark \
+    --restart unless-stopped \
+    -p 8501:8501 \
+    -v "${DEPLOY_DIR}/data:/app/benchmark/data" \
+    -v "${DATASET_HOST_DIR}:/app/benchmark/datasets" \
+    -v "${DEPLOY_DIR}/.env:/app/.env:ro" \
+    -v "${DEPLOY_DIR}/models.yaml:/app/benchmark/configs/models.yaml:ro" \
+    --env-file "${DEPLOY_DIR}/.env" \
+    -e PYTHONUNBUFFERED=1 \
+    "${IMAGE}:${TAG}"
 
 echo ""
 echo "=== 部署完成 ==="
@@ -253,9 +243,9 @@ echo "  下载完成后创建标志: touch ${DATASET_HOST_DIR}/.download-complet
 echo "  创建标志后，后续运行将自动启用离线模式（HF_DATASETS_OFFLINE=1）"
 echo ""
 echo "修改配置后重启:"
-echo "  ${DOCKER_CMD} compose -f ${DEPLOY_DIR}/docker-compose.prod.yml restart"
+echo "  ${DOCKER_CMD} restart llm-benchmark"
 echo ""
 echo "常用命令:"
-echo "  日志:  ${DOCKER_CMD} compose -f ${DEPLOY_DIR}/docker-compose.prod.yml logs -f"
-echo "  停止:  ${DOCKER_CMD} compose -f ${DEPLOY_DIR}/docker-compose.prod.yml down"
-echo "  状态:  ${DOCKER_CMD} compose -f ${DEPLOY_DIR}/docker-compose.prod.yml ps"
+echo "  日志:  ${DOCKER_CMD} logs -f llm-benchmark"
+echo "  停止:  ${DOCKER_CMD} stop llm-benchmark"
+echo "  状态:  ${DOCKER_CMD} ps --filter name=llm-benchmark"
