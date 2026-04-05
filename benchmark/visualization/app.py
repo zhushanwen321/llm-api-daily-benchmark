@@ -3,7 +3,6 @@
 import json
 import sqlite3
 
-import pandas as pd
 import streamlit as st
 
 from benchmark.core.statistics import calculate_confidence_interval, calculate_mean, calculate_std
@@ -38,10 +37,10 @@ def get_dimensions(conn: sqlite3.Connection) -> list[str]:
     return [row["dimension"] for row in cursor.fetchall()]
 
 
-def get_results_df(
+def get_results(
     conn: sqlite3.Connection, model: str | None, dimension: str | None
-) -> pd.DataFrame:
-    """查询结果并返回 DataFrame."""
+) -> list[dict]:
+    """查询结果并返回字典列表."""
     query = """
         SELECT
             r.result_id,
@@ -72,7 +71,8 @@ def get_results_df(
         params.append(dimension)
 
     query += " ORDER BY r.created_at DESC"
-    return pd.read_sql_query(query, conn, params=params)
+    cursor = conn.execute(query, params)
+    return [dict(row) for row in cursor.fetchall()]
 
 
 def get_result_detail(conn: sqlite3.Connection, result_id: str) -> dict | None:
@@ -129,9 +129,9 @@ def main() -> None:
     # 创建标签页结构
     tab1, tab2, tab3 = st.tabs(["Results", "Trends", "Detail"])
 
-    df = get_results_df(conn, selected_model, selected_dimension)
+    results = get_results(conn, selected_model, selected_dimension)
 
-    if df.empty:
+    if not results:
         st.warning("No results match the selected filters.")
         return
 
@@ -139,7 +139,7 @@ def main() -> None:
         st.subheader("Statistics Summary")
 
         # 计算统计数据
-        scores = df["final_score"].tolist()
+        scores = [row["final_score"] for row in results]
         if len(scores) >= 2:
             mean_score = calculate_mean(scores)
             std_score = calculate_std(scores)
@@ -159,39 +159,31 @@ def main() -> None:
 
         st.subheader("Results Table")
 
-        display_df = df.copy()
-        display_df["passed"] = display_df["passed"].map(lambda x: "Yes" if x else "No")
-        display_df["execution_time"] = (
-            display_df["execution_time"].round(2).astype(str) + "s"
-        )
-        display_df["tokens_per_second"] = display_df["tokens_per_second"].apply(
-            lambda x: f"{x:.1f} tok/s" if pd.notna(x) else "-"
-        )
-        display_df = display_df.drop(
-            columns=[
-                "prompt_tokens",
-                "completion_tokens",
-                "ttft_content",
-                "reasoning_tokens",
-            ]
-        )
-        display_df.columns = [
-            "ID",
-            "Model",
-            "Dimension",
-            "Task",
-            "Score",
-            "Passed",
-            "Time",
-            "Token Speed",
-            "Date",
-        ]
+        _DROP_COLUMNS = {"prompt_tokens", "completion_tokens", "ttft_content", "reasoning_tokens"}
+        _COLUMN_RENAME = {
+            "result_id": "ID", "model": "Model", "dimension": "Dimension",
+            "task_id": "Task", "final_score": "Score", "passed": "Passed",
+            "execution_time": "Time", "tokens_per_second": "Token Speed",
+            "created_at": "Date",
+        }
+        display_data = []
+        for row in results:
+            display_row = {}
+            for key, value in row.items():
+                if key in _DROP_COLUMNS:
+                    continue
+                new_key = _COLUMN_RENAME.get(key, key)
+                if key == "passed":
+                    display_row[new_key] = "Yes" if value else "No"
+                elif key == "execution_time":
+                    display_row[new_key] = f"{value:.2f}s" if value is not None else "-"
+                elif key == "tokens_per_second":
+                    display_row[new_key] = f"{value:.1f} tok/s" if value is not None else "-"
+                else:
+                    display_row[new_key] = value
+            display_data.append(display_row)
 
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            hide_index=True,
-        )
+        st.dataframe(display_data, use_container_width=True, hide_index=True)
 
     with tab2:
         st.subheader("Score Trends")
@@ -237,7 +229,7 @@ def main() -> None:
     with tab3:
         st.subheader("Result Detail")
 
-        result_ids = df["result_id"].tolist()
+        result_ids = [row["result_id"] for row in results]
         if (
             "selected_result_id" not in st.session_state
             or st.session_state["selected_result_id"] not in result_ids

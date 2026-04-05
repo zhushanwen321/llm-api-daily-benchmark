@@ -33,8 +33,38 @@ class TestGetModelConfig:
         assert result["api_key"] == "test-key"
         assert result["max_tokens"] == 4096
 
-    def test_rate_limit_returned(self, tmp_path):
-        """有 rate_limit 时应包含在返回值中。"""
+    def test_max_concurrency_returned(self, tmp_path):
+        """有 max_concurrency 时应包含在返回值中。"""
+        cfg_path = _write_test_config(tmp_path, {
+            "providers": {
+                "glm": {
+                    "api_key": "k",
+                    "api_base": "https://api.test.com/v1/",
+                    "max_concurrency": 5,
+                    "models": {"glm-4.7": {}},
+                }
+            }
+        })
+        result = get_model_config("glm/glm-4.7", models_path=cfg_path)
+        assert result["max_concurrency"] == 5
+        assert "rate_limit" not in result
+
+    def test_no_max_concurrency_returns_none(self, tmp_path):
+        """无 max_concurrency 时返回 None。"""
+        cfg_path = _write_test_config(tmp_path, {
+            "providers": {
+                "glm": {
+                    "api_key": "k",
+                    "api_base": "https://api.test.com/v1/",
+                    "models": {"glm-4.7": {}},
+                }
+            }
+        })
+        result = get_model_config("glm/glm-4.7", models_path=cfg_path)
+        assert result["max_concurrency"] is None
+
+    def test_rate_limit_deprecated_mapped_to_max_concurrency(self, tmp_path):
+        """旧配置 rate_limit 应映射到 max_concurrency 并打印 deprecation warning。"""
         cfg_path = _write_test_config(tmp_path, {
             "providers": {
                 "glm": {
@@ -45,22 +75,25 @@ class TestGetModelConfig:
                 }
             }
         })
-        result = get_model_config("glm/glm-4.7", models_path=cfg_path)
-        assert result["rate_limit"] == 3.0
+        with pytest.warns(DeprecationWarning, match="rate_limit.*deprecated.*max_concurrency"):
+            result = get_model_config("glm/glm-4.7", models_path=cfg_path)
+        assert result["max_concurrency"] == 3
+        assert "rate_limit" not in result
 
-    def test_no_rate_limit_returns_none(self, tmp_path):
-        """无 rate_limit 时返回 None。"""
+    def test_max_concurrency_negative_raises(self, tmp_path):
+        """max_concurrency <= 0 时应抛出 ValueError。"""
         cfg_path = _write_test_config(tmp_path, {
             "providers": {
                 "glm": {
                     "api_key": "k",
                     "api_base": "https://api.test.com/v1/",
+                    "max_concurrency": 0,
                     "models": {"glm-4.7": {}},
                 }
             }
         })
-        result = get_model_config("glm/glm-4.7", models_path=cfg_path)
-        assert result["rate_limit"] is None
+        with pytest.raises(ValueError, match="max_concurrency must be positive"):
+            get_model_config("glm/glm-4.7", models_path=cfg_path)
 
     def test_bare_model_name_raises(self, tmp_path):
         """裸名（如 glm-4.7）应报错提示格式。"""

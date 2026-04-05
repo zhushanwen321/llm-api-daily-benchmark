@@ -6,7 +6,7 @@ import os
 import random
 from typing import List
 
-from datasets import load_dataset
+from benchmark.adapters.hf_loader import load_hf_dataset
 
 from benchmark.adapters.base import DatasetAdapter
 from benchmark.models.schemas import TaskDefinition
@@ -20,11 +20,10 @@ class MMLUProAdapter(DatasetAdapter):
 
     def load(self, path: str = "") -> List[TaskDefinition]:
         cache_dir = path or os.path.join("benchmark", "datasets", "mmlu_pro")
-        dataset = load_dataset(
+        dataset = load_hf_dataset(
             "TIGER-Lab/MMLU-Pro",
             split="test",
             cache_dir=cache_dir,
-            download_mode="reuse_dataset_if_exists",
         )
 
         rng = random.Random(42)

@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import re
 from typing import List
-from datasets import load_dataset
+from benchmark.adapters.hf_loader import load_hf_dataset
 from benchmark.adapters.base import DatasetAdapter
 from benchmark.core.prompt_builder import build_structured_prompt
 from benchmark.models.schemas import TaskDefinition
@@ -16,12 +16,11 @@ class GSM8KAdapter(DatasetAdapter):
     def load(self, path: str = "") -> List[TaskDefinition]:
         """加载 GSM8K 最难的5题（按解答步骤数排序）."""
         cache_dir = path or os.path.join("benchmark", "datasets", "gsm8k")
-        dataset = load_dataset(
+        dataset = load_hf_dataset(
             "openai/gsm8k",
-            "main",
             split="test",
             cache_dir=cache_dir,
-            download_mode="reuse_dataset_if_exists",
+            config_name="main",
         )
         items_with_steps = []
         for item in dataset:

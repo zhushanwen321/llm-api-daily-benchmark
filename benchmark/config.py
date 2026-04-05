@@ -74,7 +74,7 @@ def get_model_config(model_name: str, models_path: str | Path | None = None) -> 
         models_path: 模型配置路径。为 None 时使用 configs/models.yaml。
 
     Returns:
-        合并后的配置字典，包含 provider, api_key, api_base, max_tokens, rate_limit 字段。
+        合并后的配置字典，包含 provider, api_key, api_base, max_tokens, max_concurrency 字段。
 
     Raises:
         ValueError: 格式错误、provider 不存在或 model 不存在。
@@ -110,11 +110,32 @@ def get_model_config(model_name: str, models_path: str | Path | None = None) -> 
     # 读取全局默认值，默认为 131072
     defaults = cfg.get("defaults", {})
     default_max_tokens = defaults.get("max_tokens", 131072)
+
+    # 并发控制：优先读取 max_concurrency，兼容旧配置 rate_limit
+    max_concurrency = None
+    if "max_concurrency" in provider_cfg:
+        max_concurrency = provider_cfg["max_concurrency"]
+    elif "rate_limit" in provider_cfg:
+        import warnings
+        warnings.warn(
+            f"Provider '{provider_name}': 'rate_limit' 配置已废弃，"
+            f"请改用 'max_concurrency'。当前值 {provider_cfg['rate_limit']} "
+            f"将自动映射为 max_concurrency。",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        max_concurrency = provider_cfg["rate_limit"]
+
+    if max_concurrency is not None:
+        max_concurrency = int(max_concurrency)
+        if max_concurrency <= 0:
+            raise ValueError(f"max_concurrency must be positive, got {max_concurrency}")
+
     return {
         "provider": provider_name,
         "api_key": _resolve_env_var(provider_cfg["api_key"], "api_key"),
         "api_base": provider_cfg["api_base"],
         "max_tokens": model_cfg.get("max_tokens", default_max_tokens),
-        "rate_limit": float(provider_cfg["rate_limit"]) if "rate_limit" in provider_cfg else None,
+        "max_concurrency": max_concurrency,
         "thinking": model_cfg.get("thinking", {}),
     }
