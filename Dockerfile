@@ -1,10 +1,14 @@
 FROM python:3.13-slim
 
+ENV TZ=Asia/Shanghai
+
 WORKDIR /app
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
     gcc \
+    tzdata \
+    && ln -sf /usr/share/zoneinfo/Asia/Shanghai /etc/localtime \
     && rm -rf /var/lib/apt/lists/*
 
 # 先复制依赖文件，利用 Docker 缓存
