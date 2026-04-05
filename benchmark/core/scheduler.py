@@ -38,11 +38,11 @@ class BenchmarkScheduler:
     def start(self) -> None:
         """启动调度器。如果未启用则跳过。"""
         if not self.enabled:
-            print("[scheduler] 调度器未启用 (SCHEDULER_ENABLED != true)")
+            logger.info("调度器未启用 (SCHEDULER_ENABLED != true)")
             return
 
         if not self.models:
-            print("[scheduler] 调度器启用但未配置 SCHEDULER_MODELS，跳过启动")
+            logger.warning("调度器启用但未配置 SCHEDULER_MODELS，跳过启动")
             return
 
         self._scheduler = BackgroundScheduler()
@@ -53,24 +53,19 @@ class BenchmarkScheduler:
             replace_existing=True,
         )
         self._scheduler.start()
-        msg = (
-            f"[scheduler] 调度器已启动: cron='{self.cron}', "
-            f"models={self.models}, dimensions={self.dimensions}, "
-            f"samples={self.samples}"
+        logger.info(
+            "调度器已启动: cron='%s', models=%s, dimensions=%s, samples=%s",
+            self.cron, self.models, self.dimensions, self.samples,
         )
-        print(msg)
-        logger.info(msg)
 
     def stop(self) -> None:
         """停止调度器。"""
         if self._scheduler and self._scheduler.running:
             self._scheduler.shutdown(wait=False)
-            print("[scheduler] 调度器已停止")
             logger.info("调度器已停止")
 
     def _run_scheduled_evaluation(self) -> None:
         """调度触发时执行的全量评测。"""
-        print(f"[scheduler] 定时评测触发: models={self.models}, dimensions={self.dimensions}")
         logger.info("定时评测触发: models=%s, dimensions=%s", self.models, self.dimensions)
         try:
             from benchmark.cli import _run_multi_evaluation
@@ -81,8 +76,6 @@ class BenchmarkScheduler:
                 dimensions = list(DIMENSION_REGISTRY.keys())
 
             asyncio.run(_run_multi_evaluation(self.models, dimensions, self.samples, debug=False))
-            print("[scheduler] 定时评测完成")
             logger.info("定时评测完成")
         except Exception:
-            print("[scheduler] 定时评测执行失败")
             logger.exception("定时评测执行失败")

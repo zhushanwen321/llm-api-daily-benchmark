@@ -92,6 +92,10 @@ def main() -> None:
     st.set_page_config(page_title="LLM Benchmark", layout="wide")
     st.title("LLM Benchmark Results")
 
+    # 初始化日志，确保 scheduler 等模块的 logger 输出到 stdout
+    from benchmark.core.logging_config import setup_logging
+    setup_logging()
+
     # 启动定时调度器（如果已启用）
     if "scheduler_started" not in st.session_state:
         from benchmark.core.scheduler import BenchmarkScheduler
