@@ -1,0 +1,15 @@
+services:
+  benchmark:
+    build: .
+    container_name: llm-benchmark
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env:ro
+      - ./models.yaml:/app/benchmark/configs/models.yaml:ro
+    env_file:
+      - .env
+    environment:
+      - PYTHONUNBUFFERED=1

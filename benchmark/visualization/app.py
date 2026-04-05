@@ -92,6 +92,14 @@ def main() -> None:
     st.set_page_config(page_title="LLM Benchmark", layout="wide")
     st.title("LLM Benchmark Results")
 
+    # 启动定时调度器（如果已启用）
+    if "scheduler_started" not in st.session_state:
+        from benchmark.core.scheduler import BenchmarkScheduler
+
+        sched = BenchmarkScheduler()
+        sched.start()
+        st.session_state["scheduler_started"] = True
+
     conn = get_connection()
 
     results_check = conn.execute("SELECT COUNT(*) FROM eval_results").fetchone()

@@ -52,6 +52,17 @@ DATASET_REGISTRY: dict[str, str] = {
 def _setup_proxy() -> None:
     """从 .env 加载代理配置，用于 HuggingFace 数据集下载."""
     load_dotenv()
+
+    # 检测数据集缓存标志文件，存在则启用离线模式
+    from pathlib import Path
+
+    dataset_flag = Path("benchmark/datasets/.download-complete")
+    if dataset_flag.exists():
+        os.environ["HF_DATASETS_OFFLINE"] = "1"
+        logger.info("检测到 .download-complete 标志，启用离线模式")
+    else:
+        logger.debug("未检测到 .download-complete 标志，使用网络下载数据集")
+
     proxy = os.getenv("HF_PROXY")
     if proxy:
         os.environ.setdefault("http_proxy", proxy)
@@ -81,7 +92,7 @@ def cli(ctx: click.Context, debug: bool) -> None:
 @click.option(
     "--dimension",
     required=True,
-    type=click.Choice(["reasoning", "backend-dev", "system-architecture", "frontend-dev"]),
+    type=click.Choice(["reasoning", "backend-dev", "system-architecture", "frontend-dev", "all"]),
     help="评测维度",
 )
 @click.option("--samples", default=15, help="评测题目数量")
@@ -99,11 +110,15 @@ def evaluate(
     if not debug:
         debug = ctx.obj.get("debug", False)
     _setup_proxy()
-    if dimension not in DIMENSION_REGISTRY:
-        console.print(f"[red]Unknown dimension: {dimension}[/red]")
-        raise SystemExit(1)
 
-    asyncio.run(_run_evaluation(model, dimension, samples, debug))
+    models = [m.strip() for m in model.split(",") if m.strip()]
+
+    if dimension == "all":
+        dimensions = list(DIMENSION_REGISTRY.keys())
+    else:
+        dimensions = [dimension]
+
+    asyncio.run(_run_multi_evaluation(models, dimensions, samples, debug))
 
 
 async def _evaluate_task(
@@ -287,6 +302,18 @@ async def _run_evaluation(
         db.close()
 
 
+async def _run_multi_evaluation(
+    models: list[str], dimensions: list[str], samples: int, debug: bool
+) -> None:
+    """多模型 x 多维度并发评测。"""
+    coros = [
+        _run_evaluation(model, dim, samples, debug)
+        for model in models
+        for dim in dimensions
+    ]
+    await asyncio.gather(*coros)
+
+
 @cli.command("list-datasets")
 def list_datasets() -> None:
     """列出可用数据集."""
@@ -361,3 +388,45 @@ def report(models: str | None, dimensions: str | None, date_range: str | None, o
     except ValueError as e:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(1)
+
+
+@cli.group()
+def scheduler() -> None:
+    """定时调度器管理。"""
+
+
+@scheduler.command()
+def start() -> None:
+    """启动定时调度器。"""
+    from benchmark.core.scheduler import BenchmarkScheduler
+    sched = BenchmarkScheduler()
+    sched.start()
+    if sched.enabled:
+        console.print("[green]调度器已启动[/green]")
+        console.print(f"  Cron: {sched.cron}")
+        console.print(f"  Models: {sched.models}")
+        console.print(f"  Dimensions: {sched.dimensions}")
+        console.print(f"  Samples: {sched.samples}")
+    else:
+        console.print("[yellow]调度器未启用 (设置 SCHEDULER_ENABLED=true)[/yellow]")
+
+
+@scheduler.command()
+def stop() -> None:
+    """停止定时调度器。"""
+    from benchmark.core.scheduler import BenchmarkScheduler
+    sched = BenchmarkScheduler()
+    sched.stop()
+    console.print("[green]调度器已停止[/green]")
+
+
+@scheduler.command()
+def status() -> None:
+    """查看调度器状态。"""
+    from benchmark.core.scheduler import BenchmarkScheduler
+    sched = BenchmarkScheduler()
+    console.print(f"  Enabled: {sched.enabled}")
+    console.print(f"  Cron: {sched.cron}")
+    console.print(f"  Models: {sched.models}")
+    console.print(f"  Dimensions: {sched.dimensions}")
+    console.print(f"  Samples: {sched.samples}")
