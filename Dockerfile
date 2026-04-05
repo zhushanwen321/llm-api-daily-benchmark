@@ -27,6 +27,11 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # 复制项目源码（streamlit run 需要直接路径访问 app.py）
 COPY benchmark/ ./benchmark/
 
+# 让 site-packages 中的 configs 指向工作目录，这样容器挂载的配置文件
+# (models.yaml 等) 能被 __file__ 解析到 site-packages 的代码正确找到
+RUN rm -rf /usr/local/lib/python3.13/site-packages/benchmark/configs \
+    && ln -s /app/benchmark/configs /usr/local/lib/python3.13/site-packages/benchmark/configs
+
 # 清理不需要的运行时文件以减小镜像体积
 RUN pip uninstall -y pip \
     && rm -rf /usr/local/lib/python3.13/ensurepip \
