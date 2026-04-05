@@ -1,4 +1,4 @@
-"""数学表达式评分器。支持数值比较和 sympy 符号比较."""
+"""数学表达式评分器。支持数值比较."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ def _extract_balanced_braces(text: str, start: int) -> tuple[str, int]:
 
 
 def _normalize_latex(expr: str) -> str:
-    """将 LaTeX 表达式转换为可解析的 Python/sympy 表达式."""
+    """将 LaTeX 表达式转换为可解析的 Python 表达式."""
     s = expr.strip()
 
     # 去掉 \left \right
@@ -100,28 +100,12 @@ def _try_numeric_match(a: str, b: str) -> bool:
         return False
 
 
-def _try_sympy_match(a: str, b: str) -> bool:
-    """尝试 sympy 符号比较."""
-    try:
-        import sympy
-
-        a_norm = _normalize_latex(_strip_equals(a))
-        b_norm = _normalize_latex(_strip_equals(b))
-        expr_a = sympy.sympify(a_norm)
-        expr_b = sympy.sympify(b_norm)
-        diff = sympy.simplify(expr_a - expr_b)
-        return diff == 0
-    except Exception:
-        return False
-
-
 class MathScorer(BaseScorer):
     """数学题评分器.
 
-    支持三种匹配模式:
+    支持两种匹配模式:
     1. 字符串精确匹配
     2. 数值比较（normalize 后安全 eval）
-    3. sympy 符号比较
     """
 
     def score(self, ctx: ScoringContext) -> ScoreResult:
@@ -144,15 +128,6 @@ class MathScorer(BaseScorer):
                 passed=True,
                 details={"predicted": predicted, "expected": expected, "method": "numeric"},
                 reasoning=f"Correct (numeric): {predicted} == {expected}",
-            )
-
-        # sympy 符号比较
-        if _try_sympy_match(predicted, expected):
-            return ScoreResult(
-                score=100.0,
-                passed=True,
-                details={"predicted": predicted, "expected": expected, "method": "sympy"},
-                reasoning=f"Correct (symbolic): {predicted} == {expected}",
             )
 
         return ScoreResult(
