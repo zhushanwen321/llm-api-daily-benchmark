@@ -54,9 +54,8 @@ class BenchmarkScheduler:
         )
         self._scheduler.start()
         logger.info(
-            f"调度器已启动: cron='{self.cron}', "
-            f"models={self.models}, dimensions={self.dimensions}, "
-            f"samples={self.samples}"
+            "调度器已启动: cron='%s', models=%s, dimensions=%s, samples=%s",
+            self.cron, self.models, self.dimensions, self.samples,
         )
 
     def stop(self) -> None:
