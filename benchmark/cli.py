@@ -326,6 +326,70 @@ def list_datasets() -> None:
 
 @cli.command()
 @click.option(
+    "--output-dir",
+    default="benchmark/datasets",
+    help="缓存输出目录",
+)
+def download(output_dir: str) -> None:
+    """预下载数据集并缓存为 JSON 格式，用于离线评测."""
+    _setup_proxy()
+
+    from datasets import load_dataset as hf_load_dataset
+
+    # 所有需要下载的数据集定义：维度 -> (repo, split, config_name, 缓存子目录)
+    datasets_spec = {
+        "reasoning": [
+            ("nlile/hendrycks-MATH-benchmark", "test", None, "math"),
+        ],
+        "backend-dev": [
+            ("bigcode/bigcodebench-hard", "v0.1.0_hf", None, "bigcodebench"),
+        ],
+        "system-architecture": [
+            ("TIGER-Lab/MMLU-Pro", "test", None, "mmlu_pro"),
+        ],
+    }
+
+    total = sum(len(v) for v in datasets_spec.values())
+    done = 0
+    for dimension, specs in datasets_spec.items():
+        for repo, split, config_name, subdir in specs:
+            done += 1
+            console.print(
+                f"[{done}/{total}] Downloading [cyan]{repo}[/cyan] "
+                f"(split={split}, config={config_name or 'default'}) ..."
+            )
+            cache_dir = os.path.join(output_dir, subdir)
+
+            # 跳过已有缓存
+            safe_repo = repo.replace("/", "--")
+            parts = [cache_dir, safe_repo]
+            if config_name:
+                parts.append(config_name.replace("/", "--"))
+            parts.append(f"{split}.json")
+            cache_file = os.path.join(*parts)
+
+            if os.path.exists(cache_file):
+                console.print(f"  [green]Cache exists, skipping.[/green]")
+                continue
+
+            # 用 datasets 库下载（支持 HF Hub，不依赖 datasets-server API）
+            ds = hf_load_dataset(repo, name=config_name, split=split)
+            rows = [dict(row) for row in ds]
+
+            os.makedirs(os.path.dirname(cache_file), exist_ok=True)
+            with open(cache_file, "w", encoding="utf-8") as f:
+                json.dump(rows, f, ensure_ascii=False, indent=2)
+
+            console.print(f"  [green]Cached {len(rows)} rows -> {cache_file}[/green]")
+
+    # 创建标志文件
+    flag_path = os.path.join(output_dir, ".download-complete")
+    Path(flag_path).touch()
+    console.print(f"\n[bold green]All datasets downloaded. Flag: {flag_path}[/bold green]")
+
+
+@cli.command()
+@click.option(
     "--format",
     "fmt",
     type=click.Choice(["json", "csv"]),

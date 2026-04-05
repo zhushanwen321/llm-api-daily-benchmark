@@ -107,6 +107,14 @@ def load_hf_dataset(
             return json.load(f)
 
     logger.info("Cache miss for %s (config=%s, split=%s), fetching...", repo, config_name, split)
+
+    if os.environ.get("HF_DATASETS_OFFLINE") == "1":
+        raise RuntimeError(
+            f"Offline mode enabled but cache not found for {repo} "
+            f"(config={config_name}, split={split}). "
+            f"Run 'benchmark download' to pre-cache datasets."
+        )
+
     resolved_config = config_name or _resolve_config(repo)
     rows = _fetch_all_rows(repo, resolved_config, split)
 
