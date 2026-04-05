@@ -32,7 +32,7 @@ build-backend = "hatchling.build"
 packages = ["benchmark"]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "requests-mock>=1.11"]
 # BigCodeBench-Hard 轻量题所需的第三方执行依赖
 benchmark = [
     "seaborn>=0.12",
