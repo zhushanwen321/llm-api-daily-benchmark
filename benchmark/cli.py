@@ -52,6 +52,17 @@ DATASET_REGISTRY: dict[str, str] = {
 def _setup_proxy() -> None:
     """从 .env 加载代理配置，用于 HuggingFace 数据集下载."""
     load_dotenv()
+
+    # 检测数据集缓存标志文件，存在则启用离线模式
+    from pathlib import Path
+
+    dataset_flag = Path("benchmark/datasets/.download-complete")
+    if dataset_flag.exists():
+        os.environ["HF_DATASETS_OFFLINE"] = "1"
+        logger.info("检测到 .download-complete 标志，启用离线模式")
+    else:
+        logger.debug("未检测到 .download-complete 标志，使用网络下载数据集")
+
     proxy = os.getenv("HF_PROXY")
     if proxy:
         os.environ.setdefault("http_proxy", proxy)

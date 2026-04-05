@@ -62,6 +62,8 @@ SCHEDULER_SAMPLES=15
 
 # ========== HuggingFace 代理 ==========
 # HF_PROXY=http://proxy:port
+# 数据集离线模式（首次运行自动下载数据集后，在 dataset/ 下创建 .download-complete 标志文件即可自动启用）
+# HF_DATASETS_OFFLINE=0
 ENVEOF
         echo "[!] 已生成 .env 模板，请编辑后重新运行:"
         echo "    vim ${DEPLOY_DIR}/.env"
