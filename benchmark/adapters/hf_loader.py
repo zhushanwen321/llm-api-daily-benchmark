@@ -20,6 +20,20 @@ _TIMEOUT = 30
 _MAX_RETRIES = 3
 
 
+def _resolve_config(repo: str) -> str:
+    """查询数据集的第一个可用 config（HF API 近期已将 config 改为必填参数）."""
+    resp = requests.get(
+        f"{_HF_SERVER}/configs",
+        params={"dataset": repo},
+        timeout=_TIMEOUT,
+    )
+    resp.raise_for_status()
+    configs = resp.json().get("configs", [])
+    if not configs:
+        raise RuntimeError(f"No configs found for dataset {repo}")
+    return configs[0]["config"]
+
+
 def _cache_path(cache_dir: str, repo: str, config: str | None, split: str) -> str:
     """生成缓存文件路径: {cache_dir}/{safe_repo}/{config}/{split}.json"""
     safe_repo = repo.replace("/", "--")
@@ -93,7 +107,8 @@ def load_hf_dataset(
             return json.load(f)
 
     logger.info("Cache miss for %s (config=%s, split=%s), fetching...", repo, config_name, split)
-    rows = _fetch_all_rows(repo, config_name, split)
+    resolved_config = config_name or _resolve_config(repo)
+    rows = _fetch_all_rows(repo, resolved_config, split)
 
     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
     with open(cache_file, "w", encoding="utf-8") as f:
