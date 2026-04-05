@@ -183,7 +183,7 @@ def main() -> None:
                     display_row[new_key] = value
             display_data.append(display_row)
 
-        st.dataframe(display_data, use_container_width=True, hide_index=True)
+        st.dataframe(display_data, width='stretch', hide_index=True)
 
     with tab2:
         st.subheader("Score Trends")
