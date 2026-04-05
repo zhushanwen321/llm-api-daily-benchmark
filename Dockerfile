@@ -9,10 +9,8 @@ RUN apt-get update && apt-get install -y \
 
 # 先复制依赖文件，利用 Docker 缓存
 COPY pyproject.toml ./
-RUN pip install --no-cache-dir -e .
-
-# 复制项目文件
 COPY benchmark/ ./benchmark/
+RUN pip install --no-cache-dir .
 
 # 创建数据目录
 RUN mkdir -p /app/data
