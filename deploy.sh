@@ -4,9 +4,11 @@
 # 用法: ./deploy.sh [TAG]
 #   TAG: 镜像标签，默认 latest
 #
-# 前置条件:
-#   - 已安装 docker 和 docker compose
-#   - 已登录 ghcr.io: docker login ghcr.io -u <username> -p <token>
+# 部署目录结构:
+#   deploy.sh            ← 本脚本
+#   .env                 ← API Key + 调度配置（首次运行自动生成模板）
+#   models.yaml          ← 模型 provider 配置（首次运行自动生成模板）
+#   data/                ← 评测数据持久化（自动创建）
 #
 # 代理处理:
 #   访问 ghcr.io 需要代理，脚本会自动:
@@ -30,39 +32,107 @@ echo "镜像: ${IMAGE}:${TAG}"
 echo "目录: ${DEPLOY_DIR}"
 echo ""
 
-# 创建必要目录
-mkdir -p "${DEPLOY_DIR}/data"
-mkdir -p "${DEPLOY_DIR}/configs"
+# --- 初始化配置文件 ---
 
-# 初始化 .env（如果不存在）
-if [ ! -f "${DEPLOY_DIR}/.env" ]; then
-    if [ -f "${DEPLOY_DIR}/.env.example" ]; then
-        cp "${DEPLOY_DIR}/.env.example" "${DEPLOY_DIR}/.env"
-        echo "[!] 已从 .env.example 创建 .env，请编辑后重新运行"
+init_env() {
+    if [ ! -f "${DEPLOY_DIR}/.env" ]; then
+        cat > "${DEPLOY_DIR}/.env" <<'ENVEOF'
+# ========== API 配置 ==========
+# 在 models.yaml 中用 ${ZAI_API_KEY} 引用这些变量
+ZAI_API_KEY=your_api_key_here
+MINIMAX_API_KEY=your_api_key_here
+KIMI_API_KEY=your_api_key_here
+
+# ========== 调度配置 ==========
+# 是否启用定时调度
+SCHEDULER_ENABLED=false
+# Cron 表达式（默认每天凌晨 2 点）
+SCHEDULER_CRON=0 2 * * *
+# 要评测的模型列表（逗号分隔，对应 models.yaml 中的 provider/model）
+SCHEDULER_MODELS=glm/glm-4.7
+# 要评测的维度（逗号分隔，all 表示全部）
+SCHEDULER_DIMENSIONS=all
+# 每个维度的题目数量
+SCHEDULER_SAMPLES=15
+
+# ========== HuggingFace 代理 ==========
+# HF_PROXY=http://proxy:port
+ENVEOF
+        echo "[!] 已生成 .env 模板，请编辑后重新运行:"
         echo "    vim ${DEPLOY_DIR}/.env"
-        exit 1
-    else
-        echo "[!] 缺少 .env 文件，请手动创建"
+        echo ""
+        echo "    必填项:"
+        echo "      - ZAI_API_KEY / MINIMAX_API_KEY / KIMI_API_KEY"
+        echo "      - SCHEDULER_MODELS (要评测的模型列表)"
+        echo "      - SCHEDULER_ENABLED=true (启用定时调度)"
         exit 1
     fi
-fi
+}
 
-# 初始化 models.yaml（如果不存在）
-if [ ! -f "${DEPLOY_DIR}/configs/models.yaml" ]; then
-    echo "[!] 缺少 configs/models.yaml，请创建后重新运行"
-    echo "    参考 benchmark/configs/ 下的模板，api_key 使用 \${ENV_VAR} 格式"
-    exit 1
-fi
+init_models() {
+    if [ ! -f "${DEPLOY_DIR}/models.yaml" ]; then
+        cat > "${DEPLOY_DIR}/models.yaml" <<'YAMLEOF'
+# 模型 Provider 配置
+# api_key 使用 ${ENV_VAR} 格式引用 .env 中的变量
+
+defaults:
+  max_tokens: 131072
+
+providers:
+  glm:
+    api_key: ${ZAI_API_KEY}
+    api_base: https://open.bigmodel.cn/api/coding/paas/v4
+    rate_limit: 2
+    models:
+      glm-4.7:
+        max_tokens: 131072
+
+  # minimax:
+  #   api_key: ${MINIMAX_API_KEY}
+  #   api_base: https://api.minimaxi.com/v1
+  #   rate_limit: 2
+  #   models:
+  #     minimax-2:
+  #       max_tokens: 131072
+  #       thinking:
+  #         enabled: true
+  #         request_params:
+  #           reasoning_split: true
+  #         reasoning_field: reasoning_details
+
+  # kimi:
+  #   api_key: ${KIMI_API_KEY}
+  #   api_base: https://api.kimi.com/coding/v1
+  #   rate_limit: 2
+  #   models:
+  #     kimi-2:
+  #       max_tokens: 131072
+YAMLEOF
+        echo "[!] 已生成 models.yaml 模板，请编辑后重新运行:"
+        echo "    vim ${DEPLOY_DIR}/models.yaml"
+        echo ""
+        echo "    配置说明:"
+        echo "      - 取消注释需要的 provider"
+        echo "      - api_key 已使用 \${ENV_VAR} 引用 .env 中的变量"
+        echo "      - 新增 provider 时同步在 .env 中添加对应 API Key"
+        exit 1
+    fi
+}
+
+mkdir -p "${DEPLOY_DIR}/data"
+init_env
+init_models
+
+echo "[配置] .env 和 models.yaml 已就绪"
+echo ""
 
 # --- 代理和 hosts 管理 ---
 
 disable_github_hosts() {
-    # 备份原始 hosts
     if [ ! -f "${HOSTS_BACKUP}" ]; then
         sudo cp "${HOSTS_FILE}" "${HOSTS_BACKUP}"
-        echo "[proxy] 已备份 ${HOSTS_FILE} -> ${HOSTS_BACKUP}"
+        echo "[proxy] 已备份 ${HOSTS_FILE}"
     fi
-    # 注释掉包含 github 相关域名的行
     sudo sed -i -E 's/^([^#].*github.*)$/#\1/' "${HOSTS_FILE}"
     echo "[proxy] 已注释 ${HOSTS_FILE} 中的 github 相关行"
 }
@@ -78,7 +148,6 @@ restore_hosts() {
 cleanup() {
     echo "[proxy] 清理代理环境..."
     unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY 2>/dev/null || true
-    docker config rm proxy-config 2>/dev/null || true
     restore_hosts
     echo "[proxy] 清理完成"
 }
@@ -90,22 +159,18 @@ trap cleanup EXIT
 echo "[1/4] 配置代理并拉取镜像..."
 disable_github_hosts
 
-export http_proxy="${PROXY}"
-export https_proxy="${PROXY}"
-export all_proxy="${PROXY}"
-export HTTP_PROXY="${PROXY}"
-export HTTPS_PROXY="${PROXY}"
-export ALL_PROXY="${PROXY}"
+export http_proxy="${PROXY}" https_proxy="${PROXY}" all_proxy="${PROXY}"
+export HTTP_PROXY="${PROXY}" HTTPS_PROXY="${PROXY}" ALL_PROXY="${PROXY}"
 echo "[proxy] 已设置代理: ${PROXY}"
 
 docker pull "${IMAGE}:${TAG}"
 
-# 拉取完成后立即清除代理环境（后续容器不需要代理）
 unset http_proxy https_proxy all_proxy HTTP_PROXY HTTPS_PROXY ALL_PROXY
 restore_hosts
 echo "[1/4] 镜像拉取完成，代理已清除"
 
-# 生成 docker-compose.prod.yml
+# --- 生成 compose 配置并启动 ---
+
 echo "[2/4] 生成 docker-compose.prod.yml..."
 cat > "${DEPLOY_DIR}/docker-compose.prod.yml" <<EOF
 services:
@@ -118,28 +183,32 @@ services:
     volumes:
       - ${DEPLOY_DIR}/data:/app/data
       - ${DEPLOY_DIR}/.env:/app/.env:ro
-      - ${DEPLOY_DIR}/configs/models.yaml:/app/benchmark/configs/models.yaml:ro
+      - ${DEPLOY_DIR}/models.yaml:/app/benchmark/configs/models.yaml:ro
     env_file:
       - ${DEPLOY_DIR}/.env
     environment:
       - PYTHONUNBUFFERED=1
 EOF
 
-# 停止旧容器
 echo "[3/4] 停止旧容器..."
 docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" down 2>/dev/null || true
 
-# 启动新容器
 echo "[4/4] 启动新容器..."
 docker compose -f "${DEPLOY_DIR}/docker-compose.prod.yml" up -d
 
 echo ""
 echo "=== 部署完成 ==="
 echo "Web 界面: http://localhost:8501"
-echo "查看日志: docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml logs -f"
+echo ""
+echo "配置文件:"
+echo "  .env:        ${DEPLOY_DIR}/.env"
+echo "  models.yaml: ${DEPLOY_DIR}/models.yaml"
+echo "  数据目录:    ${DEPLOY_DIR}/data/"
+echo ""
+echo "修改配置后重启:"
+echo "  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml restart"
 echo ""
 echo "常用命令:"
-echo "  停止:  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml down"
-echo "  重启:  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml restart"
 echo "  日志:  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml logs -f"
+echo "  停止:  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml down"
 echo "  状态:  docker compose -f ${DEPLOY_DIR}/docker-compose.prod.yml ps"

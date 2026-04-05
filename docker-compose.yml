@@ -8,7 +8,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env:ro
-      - ./configs/models.yaml:/app/benchmark/configs/models.yaml:ro
+      - ./models.yaml:/app/benchmark/configs/models.yaml:ro
     env_file:
       - .env
     environment:
