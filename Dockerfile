@@ -5,7 +5,7 @@ WORKDIR /app
 
 COPY pyproject.toml ./
 COPY benchmark/ ./benchmark/
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir ".[benchmark]"
 
 # === 运行阶段：只复制运行时产物 ===
 FROM python:3.13-slim
