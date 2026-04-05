@@ -29,7 +29,8 @@ COPY benchmark/ ./benchmark/
 
 # 卸载 pip 减小体积
 RUN pip uninstall -y pip \
-    && rm -rf /usr/local/lib/python3.13/ensurepip
+    && rm -rf /usr/local/lib/python3.13/ensurepip \
+    && rm -rf /usr/local/lib/python3.13/site-packages/pydeck*
 
 # 创建数据目录
 RUN mkdir -p /app/data
