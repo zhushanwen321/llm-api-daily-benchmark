@@ -34,6 +34,10 @@ def _normalize_latex(expr: str) -> str:
     s = s.replace("\\left\\{", "{")
     s = s.replace("\\right\\}", "}")
 
+    # \dfrac, \tfrac 统一为 \frac
+    s = s.replace("\\dfrac", "\\frac")
+    s = s.replace("\\tfrac", "\\frac")
+
     # \frac{a}{b} -> (a)/(b) — 用花括号平衡而非正则
     while "\\frac" in s:
         idx = s.find("\\frac")
@@ -49,6 +53,18 @@ def _normalize_latex(expr: str) -> str:
             break
         arg2, pos = _extract_balanced_braces(s, pos + 1)
         s = s[:idx] + f"({arg1})/({arg2})" + s[pos:]
+
+    # \mbox{...}, \text{...} 等文本/单位标注 -> 整体移除
+    for cmd in ("\\mbox", "\\text", "\\mathrm", "\\textbf", "\\textit"):
+        while cmd in s:
+            idx = s.find(cmd)
+            pos = idx + len(cmd)
+            while pos < len(s) and s[pos] in ' \t':
+                pos += 1
+            if pos >= len(s) or s[pos] != '{':
+                break
+            _, pos = _extract_balanced_braces(s, pos + 1)
+            s = s[:idx] + s[pos:]
 
     # \sqrt{expr} -> sqrt(expr)
     while "\\sqrt{" in s:
@@ -66,6 +82,10 @@ def _normalize_latex(expr: str) -> str:
 
     # ^\circ -> 去掉
     s = s.replace("^\\circ", "")
+
+    # 移除尾随的 ^{...} 或 ^\S（剥离单位后的孤立上标，如 inches^2）
+    s = re.sub(r"\s*\^\{[^}]*\}\s*$", "", s)
+    s = re.sub(r"\s*\^\S\s*$", "", s)
 
     # \pi -> pi
     s = s.replace("\\pi", "pi")
@@ -103,10 +123,19 @@ def _try_numeric_match(a: str, b: str) -> bool:
 class MathScorer(BaseScorer):
     """数学题评分器.
 
-    支持两种匹配模式:
+    支持三种匹配模式:
     1. 字符串精确匹配
-    2. 数值比较（normalize 后安全 eval）
+    2. 空格归一化字符串匹配
+    3. 数值比较（normalize 后安全 eval）
     """
+
+    @staticmethod
+    def _normalize_spaces(s: str) -> str:
+        """归一化结构化表达式中的空格：逗号和括号周围."""
+        s = re.sub(r"\s*,\s*", ",", s)
+        s = re.sub(r"\(\s+", "(", s)
+        s = re.sub(r"\s+\)", ")", s)
+        return s.strip()
 
     def score(self, ctx: ScoringContext) -> ScoreResult:
         predicted = ctx.model_answer.strip()
@@ -119,6 +148,15 @@ class MathScorer(BaseScorer):
                 passed=True,
                 details={"predicted": predicted, "expected": expected, "method": "string"},
                 reasoning=f"Correct: {predicted}",
+            )
+
+        # 空格归一化比较
+        if self._normalize_spaces(predicted) == self._normalize_spaces(expected):
+            return ScoreResult(
+                score=100.0,
+                passed=True,
+                details={"predicted": predicted, "expected": expected, "method": "space_normalized"},
+                reasoning=f"Correct (space_normalized): {predicted} == {expected}",
             )
 
         # 数值比较
