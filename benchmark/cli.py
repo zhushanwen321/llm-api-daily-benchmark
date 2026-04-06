@@ -7,6 +7,7 @@ import csv
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -136,11 +137,12 @@ async def _evaluate_task(
     """单个 task 的异步评测协程。"""
     try:
         logger.debug(f"处理任务 {task_idx + 1}/{total}: {task.task_id}")
-        start_time = datetime.now()
+        t_task_start = time.monotonic()
 
-        # 委托给 Evaluator 执行评测编排
+        # 阶段1: LLM 调用（含 semaphore 等待 + API 请求 + 重试）
         ctx = await evaluator.evaluate(task, model, llm)
-        execution_time = (datetime.now() - start_time).total_seconds()
+        t_after_llm = time.monotonic()
+        llm_duration = t_after_llm - t_task_start
 
         logger.debug(
             f"任务 {task.task_id} 生成完成，输出长度: {len(ctx.raw_output)} 字符"
@@ -148,12 +150,23 @@ async def _evaluate_task(
         if debug:
             logger.debug(f"模型输出:\n{ctx.raw_output[:500]}...")
 
-        # 使用 ScoringContext 评分
-        score_result = scorer.score(ctx)
+        # 阶段2: 评分（可能是同步阻塞的 subprocess.run）
+        t_before_score = time.monotonic()
+        score_result = await scorer.ascore(ctx)
+        t_after_score = time.monotonic()
+        score_duration = t_after_score - t_before_score
+        if score_duration > 1.0:
+            logger.warning(
+                f"PERF | {model} | {task.task_id} | "
+                f"score_block={score_duration:.1f}s (type={type(scorer).__name__})"
+            )
+
         logger.debug(
             f"任务 {task.task_id} 评分结果: score={score_result.score}, passed={score_result.passed}"
         )
 
+        # 阶段3: DB 写入
+        t_before_db = time.monotonic()
         result_id = str(uuid.uuid4())[:12]
         result = EvalResult(
             result_id=result_id,
@@ -167,27 +180,40 @@ async def _evaluate_task(
             final_score=score_result.score,
             passed=score_result.passed,
             details=score_result.details,
-            execution_time=execution_time,
+            execution_time=llm_duration,
             created_at=datetime.now(),
         )
-        db.save_result(result)
+        await db.asave_result(result)
 
         # 从 ScoringContext.gen_metrics 恢复 API 指标
         gm = ctx.gen_metrics or {}
         tps = gm.get("tokens_per_second", 0.0)
-        db.save_metrics(
+        await db.asave_metrics(
             ApiCallMetrics(
                 result_id=result_id,
                 prompt_tokens=gm.get("prompt_tokens", 0),
                 completion_tokens=gm.get("completion_tokens", 0),
                 reasoning_tokens=gm.get("reasoning_tokens", 0),
                 reasoning_content=ctx.reasoning_content,
-                duration=gm.get("duration", execution_time),
+                duration=gm.get("duration", llm_duration),
                 tokens_per_second=tps,
                 ttft_content=gm.get("ttft_content", 0.0),
                 created_at=datetime.now(),
             )
         )
+        t_after_db = time.monotonic()
+        db_duration = t_after_db - t_before_db
+
+        total_duration = t_after_db - t_task_start
+        # 输出甘特图计时日志（仅非零阶段或总耗时 > 10s 时输出）
+        if total_duration > 10.0 or score_duration > 1.0:
+            logger.info(
+                f"GANTT | {model} | {task.task_id} | "
+                f"llm={llm_duration:.1f}s | "
+                f"score={score_duration:.1f}s | "
+                f"db={db_duration:.3f}s | "
+                f"total={total_duration:.1f}s"
+            )
 
         status_icon = (
             "[green]PASS[/green]" if score_result.passed else "[red]FAIL[/red]"
@@ -195,7 +221,7 @@ async def _evaluate_task(
         console.print(
             f"  [{task_idx + 1}/{total}] {task.task_id} | "
             f"Score: {score_result.score:.0f} | {status_icon} | "
-            f"Time: {execution_time:.1f}s | "
+            f"Time: {total_duration:.1f}s | "
             f"TTFT-R: {gm.get('ttft', 0.0):.2f}s | "
             f"TTFT-C: {gm.get('ttft_content', 0.0):.2f}s | "
             f"Speed: {tps:.1f} tok/s"
