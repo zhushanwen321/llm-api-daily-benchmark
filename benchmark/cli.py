@@ -142,13 +142,10 @@ async def _evaluate_task(
         # 阶段1: LLM 调用（含 semaphore 等待 + API 请求 + 重试）
         ctx = await evaluator.evaluate(task, model, llm)
         t_after_llm = time.monotonic()
-        llm_duration = t_after_llm - t_task_start
-
-        logger.debug(
-            f"任务 {task.task_id} 生成完成，输出长度: {len(ctx.raw_output)} 字符"
-        )
-        if debug:
-            logger.debug(f"模型输出:\n{ctx.raw_output[:500]}...")
+        wall_llm_duration = t_after_llm - t_task_start
+        # 实际 API 耗时（不含 semaphore 排队），从 GenerateResponse.duration 恢复
+        gm = ctx.gen_metrics or {}
+        api_duration = gm.get("duration", wall_llm_duration)
 
         # 阶段2: 评分（异步，ExecutionScorer 用 async subprocess）
         t_before_score = time.monotonic()
@@ -180,13 +177,12 @@ async def _evaluate_task(
             final_score=score_result.score,
             passed=score_result.passed,
             details=score_result.details,
-            execution_time=llm_duration,
+            execution_time=api_duration,
             created_at=datetime.now(),
         )
         await db.asave_result(result)
 
         # 从 ScoringContext.gen_metrics 恢复 API 指标
-        gm = ctx.gen_metrics or {}
         tps = gm.get("tokens_per_second", 0.0)
         await db.asave_metrics(
             ApiCallMetrics(
@@ -195,7 +191,7 @@ async def _evaluate_task(
                 completion_tokens=gm.get("completion_tokens", 0),
                 reasoning_tokens=gm.get("reasoning_tokens", 0),
                 reasoning_content=ctx.reasoning_content,
-                duration=gm.get("duration", llm_duration),
+                duration=api_duration,
                 tokens_per_second=tps,
                 ttft_content=gm.get("ttft_content", 0.0),
                 created_at=datetime.now(),
@@ -209,7 +205,7 @@ async def _evaluate_task(
         if total_duration > 10.0 or score_duration > 1.0:
             logger.info(
                 f"GANTT | {model} | {task.task_id} | "
-                f"llm={llm_duration:.1f}s | "
+                f"llm={api_duration:.1f}s | "
                 f"score={score_duration:.1f}s | "
                 f"db={db_duration:.3f}s | "
                 f"total={total_duration:.1f}s"
