@@ -35,8 +35,20 @@ class BenchmarkScheduler:
         self.samples = int(os.getenv("SCHEDULER_SAMPLES", "15"))
         self._scheduler: BackgroundScheduler | None = None
 
+    @staticmethod
+    def _ensure_logging() -> None:
+        """确保 root logger 至少有一个 handler（后台进程可能未配置日志系统）."""
+        if not logging.getLogger().handlers:
+            logging.basicConfig(
+                level=logging.INFO,
+                format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                datefmt="%H:%M:%S",
+            )
+
     def start(self) -> None:
         """启动调度器。如果未启用则跳过。"""
+        self._ensure_logging()
+
         if not self.enabled:
             logger.info("调度器未启用 (SCHEDULER_ENABLED != true)")
             return
