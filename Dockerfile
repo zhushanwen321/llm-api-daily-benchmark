@@ -47,5 +47,8 @@ RUN mkdir -p /app/data
 # 暴露 Streamlit 端口
 EXPOSE 8501
 
-# 启动 Streamlit 并在就绪后自动触发一次页面访问，使 scheduler 立即拉起
-CMD sh -c 'streamlit run benchmark/visualization/app.py --server.port=8501 --server.address=0.0.0.0 & sleep 10 && curl -sf http://localhost:8501 >/dev/null; wait'
+# 标记 Docker 环境，app.py 据此跳过 scheduler 初始化（由 entrypoint 统一管理）
+ENV RUNNING_IN_DOCKER=true
+
+# entrypoint: 后台启动 scheduler（不依赖 Streamlit 页面访问），前台启动 Streamlit
+CMD ["sh", "-c", "python -c \"from benchmark.core.scheduler import BenchmarkScheduler; s=BenchmarkScheduler(); s.start(); import threading; threading.Event().wait()\" & exec streamlit run benchmark/visualization/app.py --server.port=8501 --server.address=0.0.0.0"]

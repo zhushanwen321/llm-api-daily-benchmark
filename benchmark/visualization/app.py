@@ -1,6 +1,7 @@
 """Streamlit 可视化界面。展示评测结果列表和单题详情."""
 
 import json
+import os
 import sqlite3
 
 import streamlit as st
@@ -96,8 +97,8 @@ def main() -> None:
     from benchmark.core.logging_config import setup_logging
     setup_logging()
 
-    # 启动定时调度器（如果已启用）
-    if "scheduler_started" not in st.session_state:
+    # 启动定时调度器（仅非 Docker 环境：Docker 中由 entrypoint 独立启动，避免重复）
+    if "scheduler_started" not in st.session_state and os.getenv("RUNNING_IN_DOCKER") != "true":
         from benchmark.core.scheduler import BenchmarkScheduler
 
         sched = BenchmarkScheduler()
