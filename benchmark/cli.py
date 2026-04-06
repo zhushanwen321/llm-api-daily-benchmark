@@ -150,7 +150,7 @@ async def _evaluate_task(
         if debug:
             logger.debug(f"模型输出:\n{ctx.raw_output[:500]}...")
 
-        # 阶段2: 评分（可能是同步阻塞的 subprocess.run）
+        # 阶段2: 评分（异步，ExecutionScorer 用 async subprocess）
         t_before_score = time.monotonic()
         score_result = await scorer.ascore(ctx)
         t_after_score = time.monotonic()
