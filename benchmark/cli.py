@@ -328,14 +328,34 @@ async def _run_evaluation(
         db.close()
 
 
+def _group_by_provider(
+    models: list[str], dimensions: list[str]
+) -> dict[str, list[tuple[str, str]]]:
+    """按 provider 分组 (model, dimension) 对。"""
+    groups: dict[str, list[tuple[str, str]]] = {}
+    for model in models:
+        provider = model.split("/", 1)[0]
+        for dim in dimensions:
+            groups.setdefault(provider, []).append((model, dim))
+    return groups
+
+
+async def _run_provider_group(
+    tasks: list[tuple[str, str]], samples: int, debug: bool
+) -> None:
+    """同一 provider 内的 evaluation run 串行执行。"""
+    for model, dim in tasks:
+        await _run_evaluation(model, dim, samples, debug)
+
+
 async def _run_multi_evaluation(
     models: list[str], dimensions: list[str], samples: int, debug: bool
 ) -> None:
-    """多模型 x 多维度并发评测。"""
+    """多模型 x 多维度评测。同 provider 串行，不同 provider 并行。"""
+    groups = _group_by_provider(models, dimensions)
     coros = [
-        _run_evaluation(model, dim, samples, debug)
-        for model in models
-        for dim in dimensions
+        _run_provider_group(tasks, samples, debug)
+        for tasks in groups.values()
     ]
     await asyncio.gather(*coros)
 
