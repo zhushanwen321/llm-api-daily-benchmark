@@ -61,17 +61,25 @@ class FrontCodeAdapter(DatasetAdapter):
                     f"Task {item['id']}: 'keywords' cannot be empty"
                 )
 
+            # 构建 metadata，保留额外字段（difficulty, source 等）
+            metadata = {
+                "type": item["type"],
+                "keywords": item["keywords"],
+                "source": "frontcode",
+            }
+            # 透传可选字段
+            for key in ("difficulty", "difficulty_level"):
+                if key in item:
+                    metadata[key] = item[key]
+
             task = TaskDefinition(
                 task_id=item["id"],
                 dimension="frontend-dev",
                 dataset="frontcode",
                 prompt=build_structured_prompt(item["prompt"], "frontend-dev"),
-                expected_output="",  # FrontCode 使用关键词匹配，不需要 expected_output
-                metadata={
-                    "type": item["type"],
-                    "keywords": item["keywords"],
-                    "source": "frontcode",
-                },
+                expected_output="",
+                test_cases=item.get("test_cases", []),
+                metadata=metadata,
             )
             tasks.append(task)
 
