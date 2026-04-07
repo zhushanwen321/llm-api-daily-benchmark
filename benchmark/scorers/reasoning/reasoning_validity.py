@@ -63,6 +63,7 @@ class ReasoningValidityScorer(BaseScorer):
             resp = await self._llm.agenerate(
                 prompt=prompt, model=self._model, temperature=0.0,
                 system_message=_JUDGE_SYSTEM,
+                disable_thinking=True,
             )
             score = self._parse_response(resp.content)
             self._cache[cache_key] = score
