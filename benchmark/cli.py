@@ -212,15 +212,16 @@ async def _evaluate_task(
         t_after_db = time.monotonic()
         db_duration = t_after_db - t_before_db
 
-        total_duration = t_after_db - t_task_start
+        # 有效执行时间 = 各阶段实际耗时之和，不含 semaphore 排队等待
+        effective_total = api_duration + score_duration + db_duration
         # 输出甘特图计时日志（仅非零阶段或总耗时 > 10s 时输出）
-        if total_duration > 10.0 or score_duration > 1.0:
+        if effective_total > 10.0 or score_duration > 1.0:
             logger.info(
                 f"GANTT | {model} | {task.task_id} | "
                 f"llm={api_duration:.1f}s | "
                 f"score={score_duration:.1f}s | "
                 f"db={db_duration:.3f}s | "
-                f"total={total_duration:.1f}s"
+                f"total={effective_total:.1f}s"
             )
 
         status_icon = (
@@ -229,7 +230,7 @@ async def _evaluate_task(
         console.print(
             f"  [{task_idx + 1}/{total}] {task.task_id} | "
             f"Score: {score_result.score:.0f} | {status_icon} | "
-            f"Time: {total_duration:.1f}s | "
+            f"Time: {effective_total:.1f}s | "
             f"TTFT-R: {gm.get('ttft', 0.0):.2f}s | "
             f"TTFT-C: {gm.get('ttft_content', 0.0):.2f}s | "
             f"Speed: {tps:.1f} tok/s"
