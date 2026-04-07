@@ -37,7 +37,7 @@ _TASK_TEMPLATE = """请为前端评测生成 {count} 道「{type}」类型的题
 ```json
 [
   {{
-    "id": "frontcode_{type}_{序号}",
+    "id": "frontcode_{type}_{{序号}}",
     "type": "{type}",
     "prompt": "中文题目描述...",
     "keywords": ["keyword1", "keyword2", ...],
