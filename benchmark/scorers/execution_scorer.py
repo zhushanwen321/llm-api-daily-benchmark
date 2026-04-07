@@ -139,7 +139,10 @@ class ExecutionScorer(BaseScorer):
                     proc.communicate(), timeout=self.timeout
                 )
             except asyncio.TimeoutError:
-                proc.kill()
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
                 await proc.wait()
                 return ScoreResult(
                     score=0.0,

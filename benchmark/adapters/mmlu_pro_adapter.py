@@ -47,7 +47,7 @@ class MMLUProAdapter(DatasetAdapter):
                 prompt_text = (
                     f"{item['question']}\n\n{options_text}\n\n"
                     f"Answer with the letter (A-{last_letter}). "
-                    f"Think step by step, then on the LAST LINE write ONLY the single letter."
+                    f"On the LAST LINE write ONLY the single letter."
                 )
 
                 task = TaskDefinition(
