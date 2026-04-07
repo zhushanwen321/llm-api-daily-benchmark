@@ -79,6 +79,7 @@ class BigCodeBenchAdapter(DatasetAdapter):
                     "source": "bigcode/bigcodebench-hard",
                     "test": item.get("test", ""),
                     "entry_point": item.get("entry_point", ""),
+                    "canonical_solution": item.get("canonical_solution", ""),
                 },
             )
             tasks.append(task)
