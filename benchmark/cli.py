@@ -29,6 +29,7 @@ from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.backend import create_backend_composite
 from benchmark.scorers.choice_match_scorer import ChoiceMatchScorer
+from benchmark.scorers.composite import CompositeScorer
 from benchmark.scorers.execution_scorer import ExecutionScorer
 from benchmark.scorers.keyword_match_scorer import KeywordMatchScorer
 from benchmark.scorers.math_scorer import MathScorer
@@ -257,11 +258,20 @@ async def _run_evaluation(
     """异步评测主流程，使用 asyncio.gather 并发执行所有 task。"""
     adapter_cls, scorer_factory, evaluator_cls = DIMENSION_REGISTRY[dimension]
     adapter = adapter_cls()
-    scorer = scorer_factory()
     evaluator = evaluator_cls()
     llm = LLMEvalAdapter(model=model)
 
-    logger.debug(f"加载适配器: {adapter_cls.__name__}, 评分器: {scorer_factory.__name__}, 编排器: {evaluator_cls.__name__}")
+    # reasoning 需要 llm 实例传给 LLM Judge，frontend-dev 使用 CompositeScorer
+    if dimension == "reasoning":
+        from benchmark.scorers.reasoning import create_reasoning_composite
+        scorer = CompositeScorer(create_reasoning_composite(llm=llm))
+    elif dimension == "frontend-dev":
+        from benchmark.scorers.frontend import create_frontend_composite
+        scorer = CompositeScorer(create_frontend_composite())
+    else:
+        scorer = scorer_factory()
+
+    logger.debug(f"加载适配器: {adapter_cls.__name__}, 评分器: {type(scorer).__name__}, 编排器: {evaluator_cls.__name__}")
 
     tasks = adapter.load()[:samples]
     if not tasks:

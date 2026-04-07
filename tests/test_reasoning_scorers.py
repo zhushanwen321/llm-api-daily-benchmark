@@ -99,7 +99,7 @@ class TestReasoningValidityScorer:
     def test_empty_reasoning_async(self):
         from benchmark.scorers.reasoning.reasoning_validity import ReasoningValidityScorer
         scorer = ReasoningValidityScorer(llm=MagicMock())
-        r = asyncio.get_event_loop().run_until_complete(scorer.ascore(make_reasoning_ctx(reasoning="")))
+        r = asyncio.run(scorer.ascore(make_reasoning_ctx(reasoning="")))
         assert r.score == 100.0
 
     def test_llm_judge_call(self):
@@ -109,7 +109,7 @@ class TestReasoningValidityScorer:
             content='{"logical_consistency": 40, "math_facts": 40, "computation": 20}',
         ))
         scorer = ReasoningValidityScorer(llm=mock_llm)
-        r = asyncio.get_event_loop().run_until_complete(
+        r = asyncio.run(
             scorer.ascore(make_reasoning_ctx(reasoning="因为 2+2=4，所以答案为 4。"))
         )
         assert r.score == 100.0
@@ -123,8 +123,8 @@ class TestReasoningValidityScorer:
         ))
         scorer = ReasoningValidityScorer(llm=mock_llm)
         ctx = make_reasoning_ctx(reasoning="test reasoning content")
-        asyncio.get_event_loop().run_until_complete(scorer.ascore(ctx))
-        asyncio.get_event_loop().run_until_complete(scorer.ascore(ctx))
+        asyncio.run(scorer.ascore(ctx))
+        asyncio.run(scorer.ascore(ctx))
         assert mock_llm.agenerate.call_count == 1
 
     def test_malformed_json_graceful(self):
@@ -132,7 +132,7 @@ class TestReasoningValidityScorer:
         mock_llm = MagicMock()
         mock_llm.agenerate = AsyncMock(return_value=GenerateResponse(content="not json at all"))
         scorer = ReasoningValidityScorer(llm=mock_llm)
-        r = asyncio.get_event_loop().run_until_complete(
+        r = asyncio.run(
             scorer.ascore(make_reasoning_ctx(reasoning="some reasoning"))
         )
         assert r.score == 50.0
