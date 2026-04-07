@@ -193,7 +193,12 @@ class LLMEvalAdapter:
                 content_filtered = False
                 final_finish_reason = ""
                 chunk_count = 0
-                reasoning_field = thinking_cfg.get("reasoning_field", "reasoning_content")
+                # reasoning 字段自动检测：优先用配置值，否则从首个 delta 自动发现
+                configured_reasoning_field = thinking_cfg.get("reasoning_field")
+                _REASONING_FIELD_CANDIDATES = {"reasoning_content", "reasoning", "reasoning_details"}
+                _SKIP_DELTA_KEYS = {"content", "role", "refusal", "function_call", "tool_calls"}
+                detected_reasoning_field: str | None = configured_reasoning_field
+                reasoning_field_auto_detected = configured_reasoning_field is None
 
                 async for line in resp.aiter_lines():
                     if not line:
@@ -259,7 +264,20 @@ class LLMEvalAdapter:
                     choices = chunk.get("choices", [])
                     if choices:
                         delta = choices[0].get("delta", {})
-                        delta_reasoning = delta.get(reasoning_field)
+                        # 自动检测 reasoning 字段（首个含非标准 key 的 delta）
+                        if reasoning_field_auto_detected and chunk_count <= 2:
+                            for k, v in delta.items():
+                                if k not in _SKIP_DELTA_KEYS and v and k in _REASONING_FIELD_CANDIDATES:
+                                    detected_reasoning_field = k
+                                    reasoning_field_auto_detected = False
+                                    logger.debug(
+                                        f"[{model}] 自动检测到 reasoning 字段: '{k}'"
+                                    )
+                                    break
+
+                        delta_reasoning = (
+                            delta.get(detected_reasoning_field) if detected_reasoning_field else None
+                        )
                         delta_content = delta.get("content")
                         if delta_reasoning:
                             # MiniMax reasoning_details 返回 list[dict]，提取 text 字段
