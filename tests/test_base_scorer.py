@@ -1,3 +1,5 @@
+import asyncio
+
 from benchmark.models.schemas import ScoringContext, ScoreResult, TaskDefinition
 from benchmark.scorers.base import BaseScorer
 
@@ -42,3 +44,12 @@ def test_base_scorer_wrong_answer():
     result = scorer.score(_make_ctx("99", "42"))
     assert result.passed is False
     assert result.score == 0.0
+
+
+def test_base_scorer_ascore_delegates_to_score():
+    """ascore() 默认实现应委托给 score()。"""
+    scorer = DummyScorer()
+    ctx = _make_ctx("42", "42")
+    result = asyncio.run(scorer.ascore(ctx))
+    assert result.passed is True
+    assert result.score == 100.0

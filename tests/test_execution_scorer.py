@@ -1,3 +1,5 @@
+import asyncio
+
 from benchmark.models.schemas import ScoringContext, TaskDefinition
 from benchmark.scorers.execution_scorer import ExecutionScorer
 
@@ -53,5 +55,44 @@ if __name__ == "__main__":
 def test_execution_empty_output():
     scorer = ExecutionScorer()
     result = scorer.score(_make_ctx(""))
+    assert result.passed is False
+    assert result.details["error"] == "Empty model output"
+
+
+def test_execution_ascore_correct_code():
+    code = "def add(a, b):\n    return a + b"
+    test = """
+import unittest
+class Test(unittest.TestCase):
+    def test_add(self):
+        self.assertEqual(add(1, 2), 3)
+if __name__ == "__main__":
+    unittest.main()
+"""
+    scorer = ExecutionScorer(timeout=10)
+    result = asyncio.run(scorer.ascore(_make_ctx(code, test, "add")))
+    assert result.passed is True
+    assert result.score == 100.0
+
+
+def test_execution_ascore_wrong_code():
+    code = "def add(a, b):\n    return a - b"
+    test = """
+import unittest
+class Test(unittest.TestCase):
+    def test_add(self):
+        self.assertEqual(add(1, 2), 3)
+if __name__ == "__main__":
+    unittest.main()
+"""
+    scorer = ExecutionScorer(timeout=10)
+    result = asyncio.run(scorer.ascore(_make_ctx(code, test, "add")))
+    assert result.passed is False
+    assert result.score == 0.0
+
+
+def test_execution_ascore_empty_output():
+    scorer = ExecutionScorer()
+    result = asyncio.run(scorer.ascore(_make_ctx("")))
     assert result.passed is False
     assert result.details["error"] == "Empty model output"

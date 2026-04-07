@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sqlite3
 from datetime import datetime
@@ -37,7 +38,7 @@ class Database:
     def _get_conn(self) -> sqlite3.Connection:
         """获取连接。单次 Database 实例生命周期内复用同一连接."""
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path))
+            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         return self._conn
 
     def close(self) -> None:
@@ -214,6 +215,14 @@ class Database:
         )
         conn.commit()
         return metrics.result_id
+
+    async def asave_result(self, result: EvalResult) -> str:
+        """异步保存单题评测结果。"""
+        return await asyncio.to_thread(self.save_result, result)
+
+    async def asave_metrics(self, metrics: ApiCallMetrics) -> str:
+        """异步保存 API 调用指标。"""
+        return await asyncio.to_thread(self.save_metrics, metrics)
 
     def get_results(
         self,
