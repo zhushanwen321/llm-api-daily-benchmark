@@ -27,18 +27,20 @@ from benchmark.core.logging_config import setup_logging
 from benchmark.core.evaluator import SingleTurnEvaluator
 from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
+from benchmark.scorers.backend import create_backend_composite
 from benchmark.scorers.choice_match_scorer import ChoiceMatchScorer
 from benchmark.scorers.execution_scorer import ExecutionScorer
 from benchmark.scorers.keyword_match_scorer import KeywordMatchScorer
 from benchmark.scorers.math_scorer import MathScorer
+from benchmark.scorers.system_architecture import create_sysarch_composite
 
 console = Console()
 logger = logging.getLogger(__name__)
 
 DIMENSION_REGISTRY: dict[str, tuple] = {
     "reasoning": (MATHAdapter, MathScorer, SingleTurnEvaluator),
-    "backend-dev": (BigCodeBenchAdapter, ExecutionScorer, SingleTurnEvaluator),
-    "system-architecture": (MMLUProAdapter, ChoiceMatchScorer, SingleTurnEvaluator),
+    "backend-dev": (BigCodeBenchAdapter, create_backend_composite, SingleTurnEvaluator),
+    "system-architecture": (MMLUProAdapter, create_sysarch_composite, SingleTurnEvaluator),
     "frontend-dev": (FrontCodeAdapter, KeywordMatchScorer, SingleTurnEvaluator),
 }
 
@@ -253,13 +255,13 @@ async def _run_evaluation(
     model: str, dimension: str, samples: int, debug: bool
 ) -> None:
     """异步评测主流程，使用 asyncio.gather 并发执行所有 task。"""
-    adapter_cls, scorer_cls, evaluator_cls = DIMENSION_REGISTRY[dimension]
+    adapter_cls, scorer_factory, evaluator_cls = DIMENSION_REGISTRY[dimension]
     adapter = adapter_cls()
-    scorer = scorer_cls()
+    scorer = scorer_factory()
     evaluator = evaluator_cls()
     llm = LLMEvalAdapter(model=model)
 
-    logger.debug(f"加载适配器: {adapter_cls.__name__}, 评分器: {scorer_cls.__name__}, 编排器: {evaluator_cls.__name__}")
+    logger.debug(f"加载适配器: {adapter_cls.__name__}, 评分器: {scorer_factory.__name__}, 编排器: {evaluator_cls.__name__}")
 
     tasks = adapter.load()[:samples]
     if not tasks:
