@@ -49,6 +49,14 @@ DATASET_REGISTRY: dict[str, str] = {
     "frontend-dev": "frontcode",
 }
 
+_THINKING_SYSTEM_MESSAGE = (
+    "你是一个高效助手。根据任务难度自适应调节思考深度：\n"
+    "- 简单任务（如选择题、事实查询）：直接回答，简短推理即可\n"
+    "- 中等任务（如数学计算、代码编写）：适当推理，重点关注核心逻辑\n"
+    "- 复杂任务（如系统设计、多步证明）：审慎推理，但避免重复验证已知结论\n"
+    "如果已经找到答案，立即停止推理并给出最终结果。"
+)
+
 
 def _setup_proxy() -> None:
     """从 .env 加载代理配置，用于 HuggingFace 数据集下载."""
@@ -133,6 +141,7 @@ async def _evaluate_task(
     run_id: str,
     total: int,
     debug: bool,
+    system_message: str | None = None,
 ) -> dict[str, Any]:
     """单个 task 的异步评测协程。"""
     try:
@@ -140,7 +149,7 @@ async def _evaluate_task(
         t_task_start = time.monotonic()
 
         # 阶段1: LLM 调用（含 semaphore 等待 + API 请求 + 重试）
-        ctx = await evaluator.evaluate(task, model, llm)
+        ctx = await evaluator.evaluate(task, model, llm, system_message=system_message)
         t_after_llm = time.monotonic()
         wall_llm_duration = t_after_llm - t_task_start
         # 实际 API 耗时（不含 semaphore 排队），从 GenerateResponse.duration 恢复
@@ -278,7 +287,7 @@ async def _run_evaluation(
         db.create_run(run)
 
         coros = [
-            _evaluate_task(i, task, model, llm, scorer, evaluator, db, run_id, len(tasks), debug)
+            _evaluate_task(i, task, model, llm, scorer, evaluator, db, run_id, len(tasks), debug, system_message=_THINKING_SYSTEM_MESSAGE)
             for i, task in enumerate(tasks)
         ]
 
