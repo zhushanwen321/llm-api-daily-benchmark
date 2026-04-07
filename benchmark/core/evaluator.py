@@ -29,8 +29,9 @@ class SingleTurnEvaluator(BaseEvaluator):
         task: TaskDefinition,
         model: str,
         llm: LLMEvalAdapter,
+        system_message: str | None = None,
     ) -> ScoringContext:
-        response = await llm.agenerate(task.prompt, model=model)
+        response = await llm.agenerate(task.prompt, model=model, system_message=system_message)
         parsed = parse_response(response.content, task.dimension)
 
         # 保留 API 指标

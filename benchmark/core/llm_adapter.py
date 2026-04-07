@@ -69,6 +69,7 @@ class LLMEvalAdapter:
         model: str,
         temperature: float = 0.0,
         max_tokens: int | None = None,
+        system_message: str | None = None,
     ) -> GenerateResponse:
         """异步调用 LLM 生成文本。每次 attempt 独立 acquire/release semaphore。"""
         cfg = self._get_model_config(model)
@@ -90,9 +91,13 @@ class LLMEvalAdapter:
             "Content-Type": "application/json",
             "User-Agent": os.getenv("LLM_USER_AGENT", "claude-code/1.0.0"),
         }
+        messages: list[dict[str, str]] = []
+        if system_message:
+            messages.append({"role": "system", "content": system_message})
+        messages.append({"role": "user", "content": prompt})
         payload: dict[str, Any] = {
             "model": model.split("/", 1)[1] if "/" in model else model,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": messages,
             "temperature": temperature,
             "max_tokens": effective_max_tokens,
             "stream": True,
