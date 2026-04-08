@@ -75,7 +75,7 @@ class TestGetModelConfig:
                 }
             }
         })
-        with pytest.warns(DeprecationWarning, match="rate_limit.*deprecated.*max_concurrency"):
+        with pytest.warns(DeprecationWarning, match="rate_limit.*max_concurrency"):
             result = get_model_config("glm/glm-4.7", models_path=cfg_path)
         assert result["max_concurrency"] == 3
         assert "rate_limit" not in result

@@ -15,7 +15,7 @@ from benchmark.scorers.base import BaseScorer
 # unittest 输出解析: "Ran X tests ... OK" 或 "FAILED (failures=N, errors=M)"
 _OK_RE = re.compile(r"Ran (\d+) test.*OK", re.DOTALL)
 _RAN_RE = re.compile(r"Ran (\d+) test")
-_FAIL_RE = re.compile(r"FAILED \((?:failures=(\d+), )?(?:errors=(\d+))?\)")
+_FAIL_RE = re.compile(r"FAILED \((?:failures=(\d+)(?:, )?)?(?:errors=(\d+))?\)")
 
 
 class TestCoverageScorer(BaseScorer):

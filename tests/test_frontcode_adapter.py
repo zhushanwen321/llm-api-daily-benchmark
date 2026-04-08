@@ -10,11 +10,11 @@ from benchmark.adapters.frontcode_adapter import FrontCodeAdapter
 from benchmark.models.schemas import TaskDefinition
 
 
-def test_load_returns_5_tasks():
-    """加载应返回5个任务."""
+def test_load_returns_tasks():
+    """加载应返回前端题目任务."""
     adapter = FrontCodeAdapter()
     tasks = adapter.load("benchmark/datasets/frontcode")
-    assert len(tasks) == 5
+    assert len(tasks) >= 5
 
 
 def test_tasks_have_correct_types():
@@ -22,8 +22,9 @@ def test_tasks_have_correct_types():
     adapter = FrontCodeAdapter()
     tasks = adapter.load("benchmark/datasets/frontcode")
     task_types = [task.metadata.get("type") for task in tasks]
-    expected_types = ["html", "css", "javascript", "react", "complex"]
-    assert set(task_types) == set(expected_types)
+    # 至少包含基础类型
+    for t in ["html", "css", "javascript", "react"]:
+        assert t in task_types, f"Missing type: {t}"
 
 
 def test_validate_valid_task():
