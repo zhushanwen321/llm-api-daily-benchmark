@@ -11,7 +11,11 @@ from benchmark.scorers.base import BaseScorer
 
 logger = logging.getLogger(__name__)
 
-_JUDGE_SYSTEM = "你是数学推理质量评判专家。请检查以下解题过程的正确性。"
+_JUDGE_SYSTEM = (
+    "你是数学推理质量评判专家。请检查以下解题过程的正确性。\n\n"
+    "约束：这是一个简单的评分任务，不需要深入思考。直接给出评分即可，"
+    "不要过度分析。总输出不超过400字。"
+)
 
 _JUDGE_TEMPLATE = """请评估以下数学解题过程的正确性。
 
@@ -20,13 +24,13 @@ _JUDGE_TEMPLATE = """请评估以下数学解题过程的正确性。
 解题过程:
 {reasoning}
 
-请以 JSON 格式返回评分（不要包含其他文字）:
+直接以 JSON 格式返回评分，不要输出其他内容:
 {{"logical_consistency": <0-40>, "math_facts": <0-40>, "computation": <0-20>}}
 
 评分标准:
-- logical_consistency (0-40): 逻辑一致性，推理链条是否连贯
-- math_facts (0-40): 数学事实正确性，公式和定理使用是否正确
-- computation (0-20): 计算正确性，数值计算是否准确"""
+- logical_consistency (0-40): 逻辑一致性
+- math_facts (0-40): 数学事实正确性
+- computation (0-20): 计算正确性"""
 
 
 class ReasoningValidityScorer(BaseScorer):
@@ -64,12 +68,17 @@ class ReasoningValidityScorer(BaseScorer):
                 prompt=prompt, model=self._model, temperature=0.0,
                 system_message=_JUDGE_SYSTEM,
                 disable_thinking=True,
+                max_tokens=1024,
             )
             score = self._parse_response(resp.content)
             self._cache[cache_key] = score
             return ScoreResult(
                 score=score, passed=score >= 60.0,
-                details={"source": "llm_judge", "raw": resp.content[:200]},
+                details={
+                    "source": "llm_judge",
+                    "raw": resp.content[:200],
+                    "judge_duration": resp.duration,
+                },
                 reasoning=f"LLM judge score: {score}",
             )
         except Exception as exc:

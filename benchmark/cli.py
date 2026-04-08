@@ -168,10 +168,15 @@ async def _evaluate_task(
         score_result = await scorer.ascore(ctx)
         t_after_score = time.monotonic()
         score_duration = t_after_score - t_before_score
+        # 从 CompositeScorer 结果中提取 judge LLM 实际 API 耗时，排除 semaphore 排队
+        judge_api_duration = score_result.details.get("judge_duration", 0.0)
+        effective_score_duration = judge_api_duration if judge_api_duration > 0 else score_duration
         if score_duration > 1.0:
             logger.warning(
                 f"PERF | {model} | {task.task_id} | "
-                f"score_block={score_duration:.1f}s (type={type(scorer).__name__})"
+                f"score_block={score_duration:.1f}s "
+                f"(judge_api={judge_api_duration:.1f}s, "
+                f"type={type(scorer).__name__})"
             )
 
         logger.debug(
@@ -233,13 +238,13 @@ async def _evaluate_task(
             logger.warning(f"质量信号采集失败: {exc}")
 
         # 有效执行时间 = 各阶段实际耗时之和，不含 semaphore 排队等待
-        effective_total = api_duration + score_duration + db_duration
+        effective_total = api_duration + effective_score_duration + db_duration
         # 输出甘特图计时日志（仅非零阶段或总耗时 > 10s 时输出）
-        if effective_total > 10.0 or score_duration > 1.0:
+        if effective_total > 10.0 or effective_score_duration > 1.0:
             logger.info(
                 f"GANTT | {model} | {task.task_id} | "
                 f"llm={api_duration:.1f}s | "
-                f"score={score_duration:.1f}s | "
+                f"score={effective_score_duration:.1f}s | "
                 f"db={db_duration:.3f}s | "
                 f"total={effective_total:.1f}s"
             )
