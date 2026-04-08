@@ -129,6 +129,12 @@ class LLMEvalAdapter:
                 last_error = exc
                 if attempt < self.max_retries - 1:
                     wait = self._calc_backoff(exc, attempt)
+                    # 429 时设置全局退避，阻止其他 task 立刻涌入
+                    if (limiter is not None
+                            and isinstance(exc, httpx.HTTPStatusError)
+                            and exc.response.status_code == 429):
+                        loop = asyncio.get_running_loop()
+                        limiter.set_rate_limited(loop.time() + wait)
                     logger.warning(
                         f"[{model}] async attempt {attempt + 1}/{self.max_retries} "
                         f"失败 ({type(exc).__name__}): {exc}. {wait}s 后重试..."
