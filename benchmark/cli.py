@@ -20,6 +20,7 @@ from rich.progress import Progress
 
 from benchmark.adapters.bigcodebench_adapter import BigCodeBenchAdapter
 from benchmark.adapters.frontcode_adapter import FrontCodeAdapter
+from benchmark.adapters.probe_adapter import ProbeAdapter
 from benchmark.adapters.math_adapter import MATHAdapter
 from benchmark.adapters.mmlu_pro_adapter import MMLUProAdapter
 from benchmark.core.llm_adapter import LLMEvalAdapter
@@ -43,6 +44,7 @@ DIMENSION_REGISTRY: dict[str, tuple] = {
     "backend-dev": (BigCodeBenchAdapter, create_backend_composite, SingleTurnEvaluator),
     "system-architecture": (MMLUProAdapter, create_sysarch_composite, SingleTurnEvaluator),
     "frontend-dev": (FrontCodeAdapter, create_frontend_composite, SingleTurnEvaluator),
+    "probe": (ProbeAdapter, lambda: [(1.0, ProbeScorer())], SingleTurnEvaluator),
 }
 
 DATASET_REGISTRY: dict[str, str] = {
@@ -50,6 +52,7 @@ DATASET_REGISTRY: dict[str, str] = {
     "backend-dev": "bigcodebench",
     "system-architecture": "mmlu-pro",
     "frontend-dev": "frontcode",
+    "probe": "probe",
 }
 
 _THINKING_SYSTEM_MESSAGE = (
@@ -104,7 +107,7 @@ def cli(ctx: click.Context, debug: bool) -> None:
 @click.option(
     "--dimension",
     required=True,
-    type=click.Choice(["reasoning", "backend-dev", "system-architecture", "frontend-dev", "all"]),
+    type=click.Choice(["reasoning", "backend-dev", "system-architecture", "frontend-dev", "probe", "all"]),
     help="评测维度",
 )
 @click.option("--samples", default=15, help="评测题目数量")
@@ -279,12 +282,10 @@ async def _run_evaluation(
     evaluator = evaluator_cls()
     llm = LLMEvalAdapter(model=model)
 
-    # judge 使用独立的 LLM，避免被测模型和 judge 是同一个导致偏差
-    judge_model = os.getenv("JUDGE_MODEL", "opencode-go-gk/kimi-k2.5")
-    judge_llm = LLMEvalAdapter(model=judge_model)
-
-    # reasoning 需要 judge_llm 实例传给 LLM Judge
+    # reasoning 需要 judge LLM 实例传给 LLM Judge（其他维度不需要）
     if dimension == "reasoning":
+        judge_model = os.getenv("JUDGE_MODEL", "opencode-go-gk/kimi-k2.5")
+        judge_llm = LLMEvalAdapter(model=judge_model)
         scorer = CompositeScorer(scorer_factory(llm=judge_llm))
     else:
         scorer = CompositeScorer(scorer_factory())
@@ -354,6 +355,57 @@ async def _run_evaluation(
             )
         except Exception as exc:
             logger.warning(f"稳定性分析失败: {exc}")
+
+        # probe 维度额外后处理：指纹生成 + 聚类分析
+        if dimension == "probe":
+            try:
+                from benchmark.analysis.fingerprint import FingerprintManager
+
+                fm = FingerprintManager()
+                results = await asyncio.to_thread(
+                    db.get_results, model=model, dimension="probe", run_id=run_id,
+                )
+                signals = await db.aget_quality_signals_for_run(run_id)
+                scores = [float(r["final_score"]) for r in results]
+
+                fp = fm.generate_fingerprint_sync(
+                    model=model, scores=scores, quality_signals=signals, run_id=run_id,
+                )
+                comparison = fm.compare_with_baseline(model=model)
+
+                status_color = "green" if comparison["status"] == "match" else "red"
+                console.print(
+                    f"  Fingerprint: [{status_color}]{comparison['status']}"
+                    f"[/{status_color}] "
+                    f"similarity={comparison.get('similarity', 'N/A')}"
+                )
+            except Exception as exc:
+                logger.warning(f"指纹分析失败: {exc}")
+
+            try:
+                from benchmark.analysis.cluster_analyzer import FingerprintClusterAnalyzer
+
+                cluster_analyzer = FingerprintClusterAnalyzer()
+                cluster_report = cluster_analyzer.analyze(model)
+
+                if cluster_report.n_clusters > 0:
+                    c_color = (
+                        "red" if cluster_report.n_clusters > 1 else "green"
+                    )
+                    console.print(
+                        f"  Cluster: [{c_color}]{cluster_report.n_clusters} clusters"
+                        f"[/{c_color}] {cluster_report.summary}"
+                    )
+                    if cluster_report.suspected_changes:
+                        for change in cluster_report.suspected_changes:
+                            console.print(
+                                f"    Change at {change['at']}: "
+                                f"cluster {change['from_cluster']} → {change['to_cluster']} "
+                                f"(similarity={change['cosine_similarity']:.4f})"
+                            )
+                    await db.asave_cluster_report(cluster_report)
+            except Exception as exc:
+                logger.warning(f"聚类分析失败: {exc}")
 
         if failed_count == 0:
             db.finish_run(run_id, "completed")
@@ -594,62 +646,10 @@ def status() -> None:
     console.print(f"  Samples: {sched.samples}")
 
 
-# ── Probe 高频监控 ──────────────────────────────────────────────
+# ── Probe 聚类分析 ──────────────────────────────────────────────
 
 
-@cli.group()
-def probe() -> None:
-    """高频 Probe 监控。"""
-
-
-@probe.command()
-@click.option("--model", required=True, help="模型标识")
-@click.option("--samples", default=20, help="题目数量")
-@click.option("--debug", is_flag=True, default=False)
-@click.pass_context
-def run(ctx: click.Context, model: str, samples: int, debug: bool) -> None:
-    """单次 Probe 运行。"""
-    if not debug:
-        debug = ctx.obj.get("debug", False)
-    _setup_proxy()
-    asyncio.run(_run_probe(model, samples, debug))
-
-
-@probe.command()
-@click.option("--models", required=True, help="逗号分隔的模型列表")
-@click.option("--interval-minutes", default=120, help="运行间隔（分钟）")
-@click.pass_context
-def schedule(ctx: click.Context, models: str, interval_minutes: int) -> None:
-    """定期运行 Probe 监控。"""
-    from apscheduler.schedulers.background import BackgroundScheduler
-
-    _setup_proxy()
-    models_list = [m.strip() for m in models.split(",") if m.strip()]
-
-    sched = BackgroundScheduler()
-
-    def _probe_job():
-        for model in models_list:
-            logger.info(f"Probe scheduled run: {model}")
-            asyncio.run(_run_probe(model, 20, False))
-
-    sched.add_job(_probe_job, "interval", minutes=interval_minutes)
-    sched.start()
-
-    console.print("[green]Probe 调度已启动[/green]")
-    console.print(f"  Models: {', '.join(models_list)}")
-    console.print(f"  Interval: {interval_minutes} 分钟")
-    console.print("  Ctrl+C 停止")
-
-    try:
-        while True:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        sched.shutdown()
-        console.print("[yellow]Probe 调度已停止[/yellow]")
-
-
-@probe.command("analyze")
+@cli.command("analyze")
 @click.option("--model", default=None, help="要分析的模型（不指定则分析全部）")
 @click.option("--classify", is_flag=True, default=False, help="同时运行跨模型分类")
 def analyze(model: str | None, classify: bool) -> None:
@@ -719,149 +719,3 @@ def analyze(model: str | None, classify: bool) -> None:
             console.print(f"    {name}: {acc:.1%}")
 
 
-async def _run_probe(model: str, samples: int, debug: bool) -> None:
-    """Probe 运行主流程。"""
-    from benchmark.adapters.probe_adapter import ProbeAdapter
-
-    adapter = ProbeAdapter()
-    llm = LLMEvalAdapter(model=model)
-    evaluator = SingleTurnEvaluator()
-
-    tasks = adapter.load()[:samples]
-    if not tasks:
-        console.print("[red]No probe tasks loaded.[/red]")
-        return
-
-    console.print(
-        f"[bold green]Starting probe:[/bold green] "
-        f"{len(tasks)} tasks, model={model}"
-    )
-
-    run_id = str(uuid.uuid4())[:12]
-    run = EvalRun(
-        run_id=run_id,
-        model=model,
-        dimension="probe",
-        dataset="probe",
-        started_at=datetime.now(),
-        status="running",
-    )
-    db = Database()
-    try:
-        db.create_run(run)
-
-        coros = [
-            _evaluate_task(
-                i, task, model, llm, ProbeScorer(), evaluator,
-                db, run_id, len(tasks), debug,
-                dimension="probe", system_message=_THINKING_SYSTEM_MESSAGE,
-            )
-            for i, task in enumerate(tasks)
-        ]
-
-        total_score = 0.0
-        passed_count = 0
-        failed_count = 0
-        with Progress() as progress:
-            task_progress = progress.add_task("Probing", total=len(tasks))
-            for coro in asyncio.as_completed(coros):
-                r = await coro
-                progress.advance(task_progress)
-                if isinstance(r, Exception):
-                    failed_count += 1
-                    continue
-                if r.get("error"):
-                    failed_count += 1
-                total_score += r["score"]
-                if r["passed"]:
-                    passed_count += 1
-
-        if failed_count == 0:
-            db.finish_run(run_id, "completed")
-        else:
-            db.finish_run(run_id, "partial" if failed_count < len(tasks) else "failed")
-
-        avg_score = total_score / len(tasks) if tasks else 0
-        console.print(
-            f"\n[bold]Probe complete:[/bold] run_id={run_id}\n"
-            f"  Average Score: [bold]{avg_score:.1f}[/bold]\n"
-            f"  Passed: {passed_count}/{len(tasks)}"
-        )
-
-        # 指纹生成 + 基线对比
-        try:
-            from benchmark.analysis.fingerprint import FingerprintManager
-
-            fm = FingerprintManager()
-            results = db.get_results(model=model, dimension="probe", run_id=run_id)
-            signals = await db.aget_quality_signals_for_run(run_id)
-            scores = [float(r["final_score"]) for r in results]
-
-            fp = fm.generate_fingerprint_sync(
-                model=model, scores=scores, quality_signals=signals, run_id=run_id,
-            )
-            comparison = fm.compare_with_baseline(model=model)
-
-            status_color = "green" if comparison["status"] == "match" else "red"
-            console.print(
-                f"  Fingerprint: [{status_color}]{comparison['status']}"
-                f"[/{status_color}] "
-                f"similarity={comparison.get('similarity', 'N/A')}"
-            )
-        except Exception as exc:
-            logger.warning(f"指纹分析失败: {exc}")
-
-        # 稳定性分析
-        try:
-            from benchmark.analysis.stability_analyzer import StabilityAnalyzer
-
-            analyzer = StabilityAnalyzer(db=db)
-            report = await analyzer.run(model=model, run_id=run_id, dimension="probe")
-            r_color = {
-                "stable": "green",
-                "suspicious": "yellow",
-                "degraded": "red",
-            }.get(report.overall_status, "white")
-            console.print(
-                f"  Stability: [{r_color}]{report.overall_status}[/{r_color}] "
-                f"{report.summary}"
-            )
-        except Exception as exc:
-            logger.warning(f"稳定性分析失败: {exc}")
-
-        # 聚类分析（指纹数 >= 5 时执行）
-        try:
-            from benchmark.analysis.cluster_analyzer import FingerprintClusterAnalyzer
-
-            cluster_analyzer = FingerprintClusterAnalyzer()
-            cluster_report = cluster_analyzer.analyze(model)
-
-            if cluster_report.n_clusters > 0:
-                c_color = (
-                    "red" if cluster_report.n_clusters > 1 else "green"
-                )
-                console.print(
-                    f"  Cluster: [{c_color}]{cluster_report.n_clusters} clusters"
-                    f"[/{c_color}] {cluster_report.summary}"
-                )
-                if cluster_report.suspected_changes:
-                    for change in cluster_report.suspected_changes:
-                        console.print(
-                            f"    Change at {change['at']}: "
-                            f"cluster {change['from_cluster']} → {change['to_cluster']} "
-                            f"(similarity={change['cosine_similarity']:.4f})"
-                        )
-                # 保存到数据库
-                await db.asave_cluster_report(cluster_report)
-        except Exception as exc:
-            logger.warning(f"聚类分析失败: {exc}")
-
-    except Exception:
-        console.print("[red]Probe failed![/red]")
-        try:
-            db.finish_run(run_id, "failed")
-        except Exception:
-            pass
-        raise
-    finally:
-        db.close()

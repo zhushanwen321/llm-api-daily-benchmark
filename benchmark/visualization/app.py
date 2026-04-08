@@ -128,7 +128,7 @@ def main() -> None:
     st.subheader("Evaluation Results")
 
     # 创建标签页结构
-    tab1, tab2, tab3 = st.tabs(["Results", "Trends", "Detail"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Results", "Trends", "Probe & Stability", "Detail"])
 
     results = get_results(conn, selected_model, selected_dimension)
 
@@ -228,6 +228,84 @@ def main() -> None:
             st.info("Please select a specific model or dimension to view trends.")
 
     with tab3:
+        st.subheader("Probe & Stability")
+
+        probe_model = selected_model if selected_model != "All" else (
+            models[0] if models else None
+        )
+
+        # ── Probe 运行历史 ──
+        st.markdown("#### Probe Runs")
+        probe_runs = conn.execute(
+            """SELECT run_id, model, status, started_at, finished_at
+               FROM eval_runs WHERE dimension = 'probe'
+               ORDER BY started_at DESC LIMIT 20"""
+        ).fetchall()
+
+        if probe_runs:
+            probe_data = []
+            for r in probe_runs:
+                run_id = r["run_id"]
+                # 查询该 run 的评分统计
+                stats = conn.execute(
+                    """SELECT COUNT(*) as total,
+                              SUM(CASE WHEN passed THEN 1 ELSE 0 END) as passed,
+                              AVG(final_score) as avg_score
+                       FROM eval_results WHERE run_id = ?""",
+                    (run_id,),
+                ).fetchone()
+                probe_data.append({
+                    "Time": r["started_at"][:19] if r["started_at"] else "-",
+                    "Model": r["model"],
+                    "Status": r["status"],
+                    "Passed": f"{stats['passed']}/{stats['total']}",
+                    "Avg Score": f"{stats['avg_score']:.1f}" if stats["avg_score"] else "-",
+                })
+            st.dataframe(probe_data, width="stretch", hide_index=True)
+        else:
+            st.info("No probe runs yet.")
+
+        # ── Stability Reports ──
+        st.markdown("#### Stability Reports")
+        stability_model = probe_model
+        stability_rows = conn.execute(
+            """SELECT model, run_id, overall_status, summary, created_at
+               FROM stability_reports
+               WHERE ? IS NULL OR model = ?
+               ORDER BY created_at DESC LIMIT 20""",
+            (stability_model, stability_model),
+        ).fetchall()
+
+        if stability_rows:
+            for row in stability_rows:
+                status = row["overall_status"]
+                color = "green" if status == "stable" else ("red" if status == "degraded" else "orange")
+                st.markdown(f"**[{row['model']}]** {row['created_at'][:19]} — :{color}[{status}]")
+                st.caption(row["summary"] or "")
+        else:
+            st.info("No stability reports yet.")
+
+        # ── Cluster Reports ──
+        st.markdown("#### Model Identity Clustering")
+        cluster_rows = conn.execute(
+            """SELECT model, n_clusters, n_noise, summary, created_at
+               FROM cluster_reports
+               WHERE ? IS NULL OR model = ?
+               ORDER BY created_at DESC LIMIT 20""",
+            (stability_model, stability_model),
+        ).fetchall()
+
+        if cluster_rows:
+            for row in cluster_rows:
+                st.markdown(
+                    f"**[{row['model']}]** {row['created_at'][:19]} — "
+                    f"Clusters: {row['n_clusters']}, Noise: {row['n_noise']}"
+                )
+                st.caption(row["summary"] or "")
+        else:
+            st.info("No cluster reports yet.")
+
+    with tab4:
         st.subheader("Result Detail")
 
         result_ids = [row["result_id"] for row in results]
