@@ -28,22 +28,21 @@ from benchmark.core.evaluator import SingleTurnEvaluator
 from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.backend import create_backend_composite
-from benchmark.scorers.choice_match_scorer import ChoiceMatchScorer
 from benchmark.scorers.composite import CompositeScorer
 from benchmark.scorers.execution_scorer import ExecutionScorer
-from benchmark.scorers.keyword_match_scorer import KeywordMatchScorer
+from benchmark.scorers.frontend import create_frontend_composite
 from benchmark.scorers.probe_scorer import ProbeScorer
-from benchmark.scorers.math_scorer import MathScorer
+from benchmark.scorers.reasoning import create_reasoning_composite
 from benchmark.scorers.system_architecture import create_sysarch_composite
 
 console = Console()
 logger = logging.getLogger(__name__)
 
 DIMENSION_REGISTRY: dict[str, tuple] = {
-    "reasoning": (MATHAdapter, MathScorer, SingleTurnEvaluator),
+    "reasoning": (MATHAdapter, create_reasoning_composite, SingleTurnEvaluator),
     "backend-dev": (BigCodeBenchAdapter, create_backend_composite, SingleTurnEvaluator),
     "system-architecture": (MMLUProAdapter, create_sysarch_composite, SingleTurnEvaluator),
-    "frontend-dev": (FrontCodeAdapter, KeywordMatchScorer, SingleTurnEvaluator),
+    "frontend-dev": (FrontCodeAdapter, create_frontend_composite, SingleTurnEvaluator),
 }
 
 DATASET_REGISTRY: dict[str, str] = {
@@ -280,15 +279,11 @@ async def _run_evaluation(
     evaluator = evaluator_cls()
     llm = LLMEvalAdapter(model=model)
 
-    # reasoning 需要 llm 实例传给 LLM Judge，frontend-dev 使用 CompositeScorer
+    # reasoning 需要 llm 实例传给 LLM Judge
     if dimension == "reasoning":
-        from benchmark.scorers.reasoning import create_reasoning_composite
-        scorer = CompositeScorer(create_reasoning_composite(llm=llm))
-    elif dimension == "frontend-dev":
-        from benchmark.scorers.frontend import create_frontend_composite
-        scorer = CompositeScorer(create_frontend_composite())
+        scorer = CompositeScorer(scorer_factory(llm=llm))
     else:
-        scorer = scorer_factory()
+        scorer = CompositeScorer(scorer_factory())
 
     logger.debug(f"加载适配器: {adapter_cls.__name__}, 评分器: {type(scorer).__name__}, 编排器: {evaluator_cls.__name__}")
 
