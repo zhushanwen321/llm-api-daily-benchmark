@@ -1,0 +1,204 @@
+{
+  "tasks": [
+    {
+      "id": "probe_format_1",
+      "type": "format",
+      "prompt": "计算 25 的平方根，保留两位小数。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\",\n  \"confidence\": 0.0-1.0\n}\n```\n字段说明：\n- answer: （字符串）你的最终答案\n- confidence: （数字 0.0 到 1.0）你对答案的置信度\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "5.00",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "easy",
+      "source": "probe"
+    },
+    {
+      "id": "probe_format_2",
+      "type": "format",
+      "prompt": "列出前 5 个质数。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"items\": [\"...\", \"...\"],\n  \"count\": N\n}\n```\n字段说明：\n- items: （字符串数组）质数列表\n- count: （整数）质数的个数\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "[2, 3, 5, 7, 11]",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "easy",
+      "source": "probe"
+    },
+    {
+      "id": "probe_format_3",
+      "type": "format",
+      "prompt": "一个长方体的长为 8cm、宽为 5cm、高为 3cm，计算其体积。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"result\": {\n    \"value\": \"数值\",\n    \"unit\": \"单位\"\n  }\n}\n```\n字段说明：\n- result.value: （字符串）体积数值\n- result.unit: （字符串）体积单位\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "120",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "easy",
+      "source": "probe"
+    },
+    {
+      "id": "probe_format_4",
+      "type": "format",
+      "prompt": "判断以下命题是否正确：\"所有偶数都能被 4 整除\"。给出你的判断和简要说明。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"status\": \"success 或 error\",\n  \"data\": \"简要说明\"\n}\n```\n字段说明：\n- status: （字符串）\"success\" 表示命题正确，\"error\" 表示命题错误\n- data: （字符串）简要说明判断理由\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "error",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_format_5",
+      "type": "format",
+      "prompt": "设计一个函数，输入圆的半径，返回圆的面积。写出函数名、参数和返回类型。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"function_name\": \"函数名\",\n  \"parameters\": {\"参数名\": \"参数类型\"},\n  \"return_type\": \"返回类型\"\n}\n```\n字段说明：\n- function_name: （字符串）函数名称\n- parameters: （对象）参数名到类型的映射\n- return_type: （字符串）返回值类型\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "area",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_reasoning_1",
+      "type": "reasoning",
+      "prompt": "化简分数：将 144/360 约分到最简形式。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）你的最终答案，格式为 \"分子/分母\"\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "2/5",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_reasoning_2",
+      "type": "reasoning",
+      "prompt": "从 10 个人中选出 3 个人组成委员会，共有多少种选法？\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）你的最终答案，为纯数字\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "120",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_reasoning_3",
+      "type": "reasoning",
+      "prompt": "一个袋子里有 3 个红球和 2 个白球。不放回地连续取出 2 个球，求两次都取到红球的概率。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）你的最终答案，为最简分数形式 \"分子/分母\"\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "3/10",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_reasoning_4",
+      "type": "reasoning",
+      "prompt": "已知数列满足 a1=2, a(n+1) = a(n) + 3，求第 10 项 a10 的值。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）你的最终答案，为纯数字\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "29",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "easy",
+      "source": "probe"
+    },
+    {
+      "id": "probe_reasoning_5",
+      "type": "reasoning",
+      "prompt": "已知 f(x) = 2x + 1，g(x) = x^2 - 1，求 f(g(3)) 的值。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）你的最终答案，为纯数字\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "17",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_consistency_1",
+      "type": "consistency",
+      "prompt": "某云服务器的配置如下：CPU 为 4 核，内存为 16GB，系统盘为 100GB SSD，数据盘为 500GB HDD。系统预留 2GB 内存给操作系统。应用需要为每个工作线程分配 512MB 内存。在保证系统预留内存的前提下，最多可以运行多少个工作线程？\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）你的最终答案，为纯数字\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "27",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_consistency_2",
+      "type": "consistency",
+      "prompt": "以下是一组系统规则，请判断它们是否自洽（即是否不存在矛盾）：\n规则1：所有管理员可以删除帖子。\n规则2：用户A是管理员。\n规则3：用户A不能删除帖子。\n规则4：只有管理员可以删除帖子。\n\n这组规则是否自洽？如果不自洽，指出矛盾所在。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）\"自洽\" 或 \"不自洽\"\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "不自洽",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_consistency_3",
+      "type": "consistency",
+      "prompt": "对话记录如下：\n张三：我昨天买了一本书，花了 45 元。\n李四：我买的比你贵 15 元。\n张三：那你的书花了 60 元。\n王五：我买的书是你们两人花费之和的一半。\n\n问：王五买书花了多少钱？\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）你的最终答案，为纯数字\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "52.5",
+      "expected_format": "json",
+      "instruction_constraints": [],
+      "difficulty": "easy",
+      "source": "probe"
+    },
+    {
+      "id": "probe_instruction_1",
+      "type": "instruction",
+      "prompt": "**【约束：只用英文回答】**\n\n请用一句话解释什么是递归。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"your answer in English\"\n}\n```\n字段说明：\n- answer: （字符串）英文答案\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "",
+      "expected_format": "json",
+      "instruction_constraints": ["只用英文回答"],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_instruction_2",
+      "type": "instruction",
+      "prompt": "**【约束：回答不超过50个字】**\n\n请简要说明 Python 中列表和元组的区别。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）不超过50个字的答案\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "",
+      "expected_format": "json",
+      "instruction_constraints": ["回答不超过50个字"],
+      "difficulty": "medium",
+      "source": "probe"
+    },
+    {
+      "id": "probe_instruction_3",
+      "type": "instruction",
+      "prompt": "**【约束：不要使用任何标点符号】**\n\n用中文回答什么是机器学习\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）不含任何标点符号的答案\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "",
+      "expected_format": "json",
+      "instruction_constraints": ["不要使用任何标点符号"],
+      "difficulty": "hard",
+      "source": "probe"
+    },
+    {
+      "id": "probe_instruction_4",
+      "type": "instruction",
+      "prompt": "**【约束：先说结论，再说原因】**\n\n地球是太阳系中最大的行星吗？请先给出结论（是/否），再解释原因。\n\n请严格按照以下 JSON 格式返回结果，不要在 JSON 之外包含任何其他文本：\n```json\n{\n  \"answer\": \"你的答案\"\n}\n```\n字段说明：\n- answer: （字符串）先结论后原因的答案\n\n注意：只返回这个 JSON 对象，不要包含任何其他内容。",
+      "expected_answer": "否",
+      "expected_format": "json",
+      "instruction_constraints": ["先说结论再说原因"],
+      "difficulty": "easy",
+      "source": "probe"
+    },
+    {
+      "id": "probe_known_answer_1",
+      "type": "known_answer",
+      "prompt": "中国的首都是哪里？",
+      "expected_answer": "北京",
+      "expected_format": "text",
+      "instruction_constraints": [],
+      "difficulty": "easy",
+      "source": "probe"
+    },
+    {
+      "id": "probe_known_answer_2",
+      "type": "known_answer",
+      "prompt": "1+1等于几？",
+      "expected_answer": "2",
+      "expected_format": "text",
+      "instruction_constraints": [],
+      "difficulty": "easy",
+      "source": "probe"
+    },
+    {
+      "id": "probe_known_answer_3",
+      "type": "known_answer",
+      "prompt": "水的化学式是什么？",
+      "expected_answer": "H2O",
+      "expected_format": "text",
+      "instruction_constraints": [],
+      "difficulty": "easy",
+      "source": "probe"
+    }
+  ]
+}
