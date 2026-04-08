@@ -42,7 +42,11 @@ logger = logging.getLogger(__name__)
 DIMENSION_REGISTRY: dict[str, tuple] = {
     "reasoning": (MATHAdapter, create_reasoning_composite, SingleTurnEvaluator),
     "backend-dev": (BigCodeBenchAdapter, create_backend_composite, SingleTurnEvaluator),
-    "system-architecture": (MMLUProAdapter, create_sysarch_composite, SingleTurnEvaluator),
+    "system-architecture": (
+        MMLUProAdapter,
+        create_sysarch_composite,
+        SingleTurnEvaluator,
+    ),
     "frontend-dev": (FrontCodeAdapter, create_frontend_composite, SingleTurnEvaluator),
     "probe": (ProbeAdapter, lambda: [(1.0, ProbeScorer())], SingleTurnEvaluator),
 }
@@ -107,7 +111,16 @@ def cli(ctx: click.Context, debug: bool) -> None:
 @click.option(
     "--dimension",
     required=True,
-    type=click.Choice(["reasoning", "backend-dev", "system-architecture", "frontend-dev", "probe", "all"]),
+    type=click.Choice(
+        [
+            "reasoning",
+            "backend-dev",
+            "system-architecture",
+            "frontend-dev",
+            "probe",
+            "all",
+        ]
+    ),
     help="评测维度",
 )
 @click.option("--samples", default=15, help="评测题目数量")
@@ -170,7 +183,9 @@ async def _evaluate_task(
         score_duration = t_after_score - t_before_score
         # 从 CompositeScorer 结果中提取 judge LLM 实际 API 耗时，排除 semaphore 排队
         judge_api_duration = score_result.details.get("judge_duration", 0.0)
-        effective_score_duration = judge_api_duration if judge_api_duration > 0 else score_duration
+        effective_score_duration = (
+            judge_api_duration if judge_api_duration > 0 else score_duration
+        )
         if score_duration > 1.0:
             logger.warning(
                 f"PERF | {model} | {task.task_id} | "
@@ -224,6 +239,7 @@ async def _evaluate_task(
         # 阶段4: 质量信号采集
         try:
             from benchmark.analysis.quality_signals import QualitySignalCollector
+
             qsc = QualitySignalCollector(db=db, model=model)
             await qsc.collect_and_save(
                 result_id=result_id,
@@ -269,7 +285,9 @@ async def _evaluate_task(
     except Exception as exc:
         logger.error(f"任务 {getattr(task, 'task_id', task_idx)} 失败: {exc}")
         status_msg = f"[red]ERROR: {type(exc).__name__}: {exc}[/red]"
-        console.print(f"  [{task_idx + 1}/{total}] {getattr(task, 'task_id', '?')} | {status_msg}")
+        console.print(
+            f"  [{task_idx + 1}/{total}] {getattr(task, 'task_id', '?')} | {status_msg}"
+        )
         return {
             "error": exc,
             "task_id": getattr(task, "task_id", str(task_idx)),
@@ -295,7 +313,9 @@ async def _run_evaluation(
     else:
         scorer = CompositeScorer(scorer_factory())
 
-    logger.debug(f"加载适配器: {adapter_cls.__name__}, 评分器: {type(scorer).__name__}, 编排器: {evaluator_cls.__name__}")
+    logger.debug(
+        f"加载适配器: {adapter_cls.__name__}, 评分器: {type(scorer).__name__}, 编排器: {evaluator_cls.__name__}"
+    )
 
     tasks = adapter.load()[:samples]
     if not tasks:
@@ -323,7 +343,20 @@ async def _run_evaluation(
         db.create_run(run)
 
         coros = [
-            _evaluate_task(i, task, model, llm, scorer, evaluator, db, run_id, len(tasks), debug, system_message=_THINKING_SYSTEM_MESSAGE, dimension=dimension)
+            _evaluate_task(
+                i,
+                task,
+                model,
+                llm,
+                scorer,
+                evaluator,
+                db,
+                run_id,
+                len(tasks),
+                debug,
+                system_message=_THINKING_SYSTEM_MESSAGE,
+                dimension=dimension,
+            )
             for i, task in enumerate(tasks)
         ]
 
@@ -347,6 +380,7 @@ async def _run_evaluation(
         # 稳定性分析
         try:
             from benchmark.analysis.stability_analyzer import StabilityAnalyzer
+
             analyzer = StabilityAnalyzer(db=db)
             report = await analyzer.run(model=model, run_id=run_id, dimension=dimension)
             status_color = {
@@ -368,13 +402,19 @@ async def _run_evaluation(
 
                 fm = FingerprintManager()
                 results = await asyncio.to_thread(
-                    db.get_results, model=model, dimension="probe", run_id=run_id,
+                    db.get_results,
+                    model=model,
+                    dimension="probe",
+                    run_id=run_id,
                 )
                 signals = await db.aget_quality_signals_for_run(run_id)
                 scores = [float(r["final_score"]) for r in results]
 
                 fp = fm.generate_fingerprint_sync(
-                    model=model, scores=scores, quality_signals=signals, run_id=run_id,
+                    model=model,
+                    scores=scores,
+                    quality_signals=signals,
+                    run_id=run_id,
                 )
                 comparison = fm.compare_with_baseline(model=model)
 
@@ -388,15 +428,15 @@ async def _run_evaluation(
                 logger.warning(f"指纹分析失败: {exc}")
 
             try:
-                from benchmark.analysis.cluster_analyzer import FingerprintClusterAnalyzer
+                from benchmark.analysis.cluster_analyzer import (
+                    FingerprintClusterAnalyzer,
+                )
 
                 cluster_analyzer = FingerprintClusterAnalyzer()
                 cluster_report = cluster_analyzer.analyze(model)
 
                 if cluster_report.n_clusters > 0:
-                    c_color = (
-                        "red" if cluster_report.n_clusters > 1 else "green"
-                    )
+                    c_color = "red" if cluster_report.n_clusters > 1 else "green"
                     console.print(
                         f"  Cluster: [{c_color}]{cluster_report.n_clusters} clusters"
                         f"[/{c_color}] {cluster_report.summary}"
@@ -452,9 +492,37 @@ def _group_by_provider(
 async def _run_provider_group(
     tasks: list[tuple[str, str]], samples: int, debug: bool
 ) -> None:
-    """同一 provider 内的 evaluation run 串行执行。"""
-    for model, dim in tasks:
-        await _run_evaluation(model, dim, samples, debug)
+    """同一 provider 内的 evaluation run 并发执行。"""
+    if not tasks:
+        return
+
+    max_concurrency = _get_provider_concurrency(tasks[0][0])
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def run_with_semaphore(model: str, dim: str) -> None:
+        async with semaphore:
+            await _run_evaluation(model, dim, samples, debug)
+
+    results = await asyncio.gather(
+        *[run_with_semaphore(m, d) for m, d in tasks], return_exceptions=True
+    )
+
+    for i, result in enumerate(results):
+        if isinstance(result, Exception):
+            model, dim = tasks[i]
+            logger.error(f"Task failed for {model}/{dim}: {result}")
+            console.print(f"[red]Error: Evaluation failed for {model}/{dim}[/red]")
+
+
+def _get_provider_concurrency(model: str) -> int:
+    """获取 provider 的最大并发数。"""
+    try:
+        from benchmark.config import get_model_config
+
+        cfg = get_model_config(model)
+        return cfg.get("max_concurrency", cfg.get("rate_limit", 2))
+    except Exception:
+        return 2
 
 
 async def _run_multi_evaluation(
@@ -462,10 +530,7 @@ async def _run_multi_evaluation(
 ) -> None:
     """多模型 x 多维度评测。同 provider 串行，不同 provider 并行。"""
     groups = _group_by_provider(models, dimensions)
-    coros = [
-        _run_provider_group(tasks, samples, debug)
-        for tasks in groups.values()
-    ]
+    coros = [_run_provider_group(tasks, samples, debug) for tasks in groups.values()]
     await asyncio.gather(*coros)
 
 
@@ -475,7 +540,9 @@ def list_datasets() -> None:
     console.print("[bold]Available datasets:[/bold]")
     console.print("  [cyan]reasoning:[/cyan]           MATH (Level 3-5, 15 tasks)")
     console.print("  [cyan]backend-dev:[/cyan]        BigCodeBench-Hard (15 tasks)")
-    console.print("  [cyan]system-architecture:[/cyan] MMLU-Pro (CS/Math/Physics, 15 tasks)")
+    console.print(
+        "  [cyan]system-architecture:[/cyan] MMLU-Pro (CS/Math/Physics, 15 tasks)"
+    )
     console.print("  [cyan]frontend-dev:[/cyan]       FrontCode (自建前端评测)")
 
 
@@ -540,7 +607,9 @@ def download(output_dir: str) -> None:
     # 创建标志文件
     flag_path = os.path.join(output_dir, ".download-complete")
     Path(flag_path).touch()
-    console.print(f"\n[bold green]All datasets downloaded. Flag: {flag_path}[/bold green]")
+    console.print(
+        f"\n[bold green]All datasets downloaded. Flag: {flag_path}[/bold green]"
+    )
 
 
 @cli.command()
@@ -586,9 +655,13 @@ def export(fmt: str, output: str, model: str | None, dimension: str | None) -> N
 @cli.command()
 @click.option("--models", default=None, help="逗号分隔的模型列表")
 @click.option("--dimensions", default=None, help="逗号分隔的维度列表")
-@click.option("--date-range", default=None, help="日期范围，格式: 2026-04-01,2026-04-30")
+@click.option(
+    "--date-range", default=None, help="日期范围，格式: 2026-04-01,2026-04-30"
+)
 @click.option("--output", default="report.html", help="输出文件路径")
-def report(models: str | None, dimensions: str | None, date_range: str | None, output: str) -> None:
+def report(
+    models: str | None, dimensions: str | None, date_range: str | None, output: str
+) -> None:
     """生成 HTML 评测报告."""
     from benchmark.core.reporter import generate_html_report
 
@@ -618,6 +691,7 @@ def scheduler() -> None:
 def start() -> None:
     """启动定时调度器。"""
     from benchmark.core.scheduler import BenchmarkScheduler
+
     sched = BenchmarkScheduler()
     sched.start()
     if sched.enabled:
@@ -634,6 +708,7 @@ def start() -> None:
 def stop() -> None:
     """停止定时调度器。"""
     from benchmark.core.scheduler import BenchmarkScheduler
+
     sched = BenchmarkScheduler()
     sched.stop()
     console.print("[green]调度器已停止[/green]")
@@ -643,6 +718,7 @@ def stop() -> None:
 def status() -> None:
     """查看调度器状态。"""
     from benchmark.core.scheduler import BenchmarkScheduler
+
     sched = BenchmarkScheduler()
     console.print(f"  Enabled: {sched.enabled}")
     console.print(f"  Cron: {sched.cron}")
@@ -722,5 +798,3 @@ def analyze(model: str | None, classify: bool) -> None:
         console.print(f"  LOO accuracy: {cv['accuracy']:.1%}")
         for name, acc in cv.get("per_model", {}).items():
             console.print(f"    {name}: {acc:.1%}")
-
-
