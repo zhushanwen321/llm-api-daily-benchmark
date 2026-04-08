@@ -1,9 +1,14 @@
 """Probe 数据集加载和字段完整性测试."""
 
 import json
+import os
+import tempfile
 from collections import Counter
 
 import pytest
+
+from benchmark.adapters.probe_adapter import ProbeAdapter
+from benchmark.models.schemas import TaskDefinition
 
 
 TASKS_FILE = "benchmark/datasets/probe/tasks.json"
@@ -177,3 +182,137 @@ class TestProbeContent:
                 assert len(t["prompt"]) > 100, (
                     f"Task {t['id']}: consistency task prompt too short ({len(t['prompt'])} chars)"
                 )
+
+
+# ── ProbeAdapter 测试 ──────────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def adapter():
+    return ProbeAdapter()
+
+
+@pytest.fixture(scope="module")
+def loaded_tasks():
+    return ProbeAdapter().load()
+
+
+class TestProbeAdapterLoad:
+    """ProbeAdapter.load 测试."""
+
+    def test_load_returns_20_tasks(self, loaded_tasks):
+        assert len(loaded_tasks) == 20
+
+    def test_load_task_ids_unique(self, loaded_tasks):
+        ids = [t.task_id for t in loaded_tasks]
+        assert len(ids) == len(set(ids))
+
+    def test_load_default_path(self, adapter):
+        tasks = adapter.load()
+        assert len(tasks) == 20
+
+    def test_load_custom_path(self, adapter):
+        tasks = adapter.load(path="benchmark/datasets/probe")
+        assert len(tasks) == 20
+
+    def test_load_missing_file(self, adapter):
+        with pytest.raises(FileNotFoundError, match="Probe tasks file not found"):
+            adapter.load(path="/nonexistent/path")
+
+    def test_load_invalid_json(self, adapter, tmp_path):
+        bad_file = tmp_path / "tasks.json"
+        bad_file.write_text("not json", encoding="utf-8")
+        with pytest.raises(ValueError, match="Invalid JSON"):
+            adapter.load(path=str(tmp_path))
+
+    def test_load_missing_required_fields(self, adapter, tmp_path):
+        bad_data = {"tasks": [{"id": "probe_bad_1", "prompt": "test"}]}
+        bad_file = tmp_path / "tasks.json"
+        bad_file.write_text(json.dumps(bad_data), encoding="utf-8")
+        with pytest.raises(ValueError, match="missing required fields"):
+            adapter.load(path=str(tmp_path))
+
+    def test_task_definition_fields(self, loaded_tasks):
+        task = loaded_tasks[0]
+        assert task.dimension == "probe"
+        assert task.dataset == "probe"
+        assert task.prompt
+        assert isinstance(task.metadata, dict)
+
+    def test_metadata_contains_probe_fields(self, loaded_tasks):
+        for task in loaded_tasks:
+            meta = task.metadata
+            assert "type" in meta
+            assert "expected_format" in meta
+            assert "instruction_constraints" in meta
+            assert "difficulty" in meta
+            assert "source" in meta
+
+    def test_expected_output_matches_expected_answer(self, loaded_tasks, tasks):
+        """expected_output 应等于 tasks.json 中的 expected_answer."""
+        by_id = {t["id"]: t for t in tasks}
+        for task in loaded_tasks:
+            assert task.expected_output == by_id[task.task_id]["expected_answer"]
+
+    def test_prompt_not_modified(self, loaded_tasks, tasks):
+        """prompt 应原样保留，不做额外包装."""
+        by_id = {t["id"]: t for t in tasks}
+        for task in loaded_tasks:
+            assert task.prompt == by_id[task.task_id]["prompt"]
+
+
+class TestProbeAdapterValidate:
+    """ProbeAdapter.validate 测试."""
+
+    def test_validate_valid_task(self, adapter):
+        task = TaskDefinition(
+            task_id="probe_test",
+            dimension="probe",
+            dataset="probe",
+            prompt="test prompt",
+            expected_output="test answer",
+        )
+        assert adapter.validate(task) is True
+
+    def test_validate_empty_task_id(self, adapter):
+        task = TaskDefinition(
+            task_id="",
+            dimension="probe",
+            dataset="probe",
+            prompt="test",
+            expected_output="answer",
+        )
+        assert adapter.validate(task) is False
+
+    def test_validate_empty_prompt(self, adapter):
+        task = TaskDefinition(
+            task_id="probe_test",
+            dimension="probe",
+            dataset="probe",
+            prompt="",
+            expected_output="answer",
+        )
+        assert adapter.validate(task) is False
+
+    def test_validate_empty_expected_output(self, adapter):
+        """expected_output 为空字符串仍应通过验证（instruction 类型题目允许空答案）."""
+        task = TaskDefinition(
+            task_id="probe_test",
+            dimension="probe",
+            dataset="probe",
+            prompt="test",
+            expected_output="",
+        )
+        assert adapter.validate(task) is True
+
+    def test_validate_all_loaded_tasks(self, adapter, loaded_tasks):
+        """所有从文件加载的任务都应通过验证."""
+        for task in loaded_tasks:
+            assert adapter.validate(task) is True, f"Failed for {task.task_id}"
+
+
+class TestProbeAdapterGetDimension:
+    """ProbeAdapter.get_dimension 测试."""
+
+    def test_get_dimension(self, adapter):
+        assert adapter.get_dimension() == "probe"
