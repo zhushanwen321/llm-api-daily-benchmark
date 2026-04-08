@@ -63,6 +63,12 @@ def generate_html_report(
         # 构建维度子分数表
         dim_score_table = _build_dimension_score_table(rows)
 
+        # 稳定性报告
+        stability_reports = _load_stability_reports(db, model_list)
+
+        # 聚类报告
+        cluster_reports = _load_cluster_reports(db, model_list)
+
         # 渲染
         template_dir = Path(__file__).parent.parent / "templates"
         env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(template_dir)))
@@ -79,6 +85,8 @@ def generate_html_report(
             radar_charts=radar_charts,
             dim_score_table=dim_score_table,
             dimension_axes=_DIMENSION_AXES,
+            stability_reports=stability_reports,
+            cluster_reports=cluster_reports,
         )
 
         output = Path(output_path)
@@ -333,4 +341,28 @@ def _build_dimension_score_table(rows: list[dict]) -> dict[str, dict[str, dict[s
             for key in list(dim_scores.keys()):
                 bucket = dim_scores[key]
                 dim_scores[key] = bucket["sum"] / bucket["count"] if bucket["count"] > 0 else 0.0
+    return result
+
+
+def _load_stability_reports(db: Database, models: list[str]) -> dict[str, list[dict]]:
+    """加载每个模型的最近稳定性报告。"""
+    result: dict[str, list[dict]] = {}
+    for model in models:
+        try:
+            reports = db._get_stability_reports(model)
+            result[model] = reports[:10]  # 最近 10 条
+        except Exception:
+            result[model] = []
+    return result
+
+
+def _load_cluster_reports(db: Database, models: list[str]) -> dict[str, list[dict]]:
+    """加载每个模型的最近聚类报告。"""
+    result: dict[str, list[dict]] = {}
+    for model in models:
+        try:
+            reports = db._get_cluster_reports(model)
+            result[model] = reports[:5]  # 最近 5 条
+        except Exception:
+            result[model] = []
     return result
