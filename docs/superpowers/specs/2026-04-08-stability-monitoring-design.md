@@ -283,23 +283,162 @@ scripts/
 
 ---
 
-## Phase 3：模型身份识别（长期）
+## Phase 3：模型身份识别
 
-积累足够指纹数据后：
-1. 用聚类算法（DBSCAN）对不同时间点的指纹做自动聚类
-2. 同一模型的不同聚类 = 确认发生了模型替换
-3. 用分类模型（SVM / KNN）识别"这是哪个已知模型的输出"
+### 1. FingerprintClusterAnalyzer
 
-此阶段需要 Phase 1 + Phase 2 运行数周积累数据后再设计，当前不做详细设计。
+**位置**：`benchmark/analysis/cluster_analyzer.py`
+
+**功能**：对单个模型的历史指纹做 DBSCAN 聚类，检测模型是否被替换。
+
+```python
+class FingerprintClusterAnalyzer:
+    def analyze(self, model, eps=0.15, min_samples=3) -> ClusterReport
+```
+
+**参数选择**：
+- 距离度量：余弦距离（与 FingerprintManager 的相似度度量一致）
+- `eps=0.15`：余弦距离 < 0.15 ≈ 余弦相似度 > 0.985，同簇表示高度相似
+- `min_samples=3`：至少 3 个点形成簇，避免偶发波动
+
+**模型变化检测**：
+- 按时间排序的聚类序列中，相邻两次运行属于不同簇 → 记录一次 `suspected_change`
+- 变化记录包含：变化时间、从/到哪个簇、余弦相似度
+
+**数据模型**：
+```python
+@dataclass
+class ClusterInfo:
+    cluster_id: int
+    size: int
+    time_range: tuple[str, str]
+    centroid: list[float]
+    avg_score: float
+
+@dataclass
+class ClusterReport:
+    model: str
+    n_clusters: int
+    n_noise: int
+    clusters: list[ClusterInfo]
+    suspected_changes: list[dict]
+    summary: str
+    created_at: datetime
+```
+
+### 2. ModelClassifier
+
+**位置**：`benchmark/analysis/cluster_analyzer.py`
+
+**功能**：跨模型 KNN 分类器，识别新指纹属于哪个已知模型。
+
+```python
+class ModelClassifier:
+    def train(self, models=None, k=3) -> dict
+    def predict(self, vector) -> dict
+    def cross_validate(self, models=None, k=3) -> dict
+```
+
+**算法选择**：
+- KNN（k=3）：适合小样本，无需训练过程，新数据直接推理
+- 距离度量：余弦距离，与指纹对比一致
+- 未选 SVM：样本量太小，SVM 过拟合风险高
+
+### 3. CLI 命令
+
+```bash
+# 分析单个模型
+benchmark probe analyze --model zai/glm-5.1
+
+# 分析所有模型
+benchmark probe analyze
+
+# 同时运行跨模型分类
+benchmark probe analyze --model zai/glm-5.1 --classify
+```
+
+### 4. 自动集成
+
+每次 `_run_probe()` 完成后，自动执行聚类分析（指纹数 >= 5 时），结果保存到 `cluster_reports` 表。
+
+### 5. 数据库变更
+
+```sql
+CREATE TABLE IF NOT EXISTS cluster_reports (
+    report_id TEXT PRIMARY KEY,
+    model TEXT NOT NULL,
+    n_clusters INTEGER NOT NULL,
+    n_noise INTEGER NOT NULL DEFAULT 0,
+    clusters TEXT NOT NULL DEFAULT '[]',
+    suspected_changes TEXT NOT NULL DEFAULT '[]',
+    summary TEXT NOT NULL DEFAULT '',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_cr_model ON cluster_reports(model);
+```
+
+### 6. 报告展示
+
+HTML 报告新增两个板块：
+- **Section 6: Stability Monitoring** — 展示每个模型的稳定性报告历史（状态 + 摘要）
+- **Section 7: Model Identity Clustering** — 展示聚类报告（簇数 + 噪声点 + 变化检测）
+
+### 7. 新增依赖
+
+- `numpy>=1.24`
+- `scikit-learn>=1.3`
 
 ---
 
 ## 实施优先级
 
-| 阶段 | 内容 | 预期收益 |
-|---|---|---|
-| Phase 1a | QualitySignalCollector + DB schema | 每日自动采集 13 个质量信号 |
-| Phase 1b | StabilityAnalyzer + 报告输出 | 自动检测稳定性异常 |
+| 阶段 | 内容 | 状态 | 预期收益 |
+|---|---|---|---|
+| Phase 1a | QualitySignalCollector + DB schema | ✅ 已完成 | 每日自动采集 13 个质量信号 |
+| Phase 1b | StabilityAnalyzer + 报告输出 | ✅ 已完成 | 自动检测稳定性异常 |
+| Phase 2a | Probe 数据集 + 适配器 | ✅ 已完成 | 高频监控能力 |
+| Phase 2b | 指纹库 + 高频调度 | ✅ 已完成 | 模型身份检测 |
+| Phase 3 | 聚类/分类 + 报告展示 | ✅ 已完成 | 自动识别模型 |
+
+---
+
+## 完整文件结构
+
+```
+benchmark/
+  analysis/
+    __init__.py
+    models.py                    ← StabilityReport, AnomalyDetail, ChangePoint,
+                                    ClusterInfo, ClusterReport
+    quality_signals.py            ← QualitySignalCollector (13 信号)
+    stability_analyzer.py         ← StabilityAnalyzer (CUSUM + t-test)
+    fingerprint.py                ← FingerprintManager (33 维向量)
+    cluster_analyzer.py           ← FingerprintClusterAnalyzer (DBSCAN)
+                                   + ModelClassifier (KNN)
+  adapters/
+    probe_adapter.py              ← Probe 适配器
+  datasets/
+    probe/
+      tasks.json                  ← 20 题 Probe 数据集
+  scorers/
+    probe_scorer.py               ← ProbeScorer (expected_answer 匹配)
+  core/
+    reporter.py                   ← HTML 报告生成（含稳定性 + 聚类板块）
+  templates/
+    report.html                   ← 报告模板
+```
+
+## 修复记录
+
+| 日期 | 修复内容 |
+|------|---------|
+| 2026-04-08 | ProbeScorer 替换 KeywordMatchScorer（probe tasks.json 无 keywords 字段） |
+| 2026-04-08 | Bonferroni 分母 14→10（实际只有 10 个 t-test） |
+| 2026-04-08 | `_get_history_scores` 增加 dimension 过滤 |
+| 2026-04-08 | CUSUM 仅使用历史基线 mean/std（排除当前异常值） |
+| 2026-04-08 | DB 同步调用包装 `asyncio.to_thread` |
+| 2026-04-08 | `compare_with_baseline` 跳过首次运行自比较 |
+| 2026-04-08 | fingerprint 生成增加 run_id 参数 |
 | Phase 2a | Probe 数据集设计 + 适配器 | 高频监控能力 |
 | Phase 2b | 指纹库 + 高频调度 | 模型身份检测 |
 | Phase 3 | 聚类/分类 | 自动识别模型 |

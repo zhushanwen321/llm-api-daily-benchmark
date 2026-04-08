@@ -574,21 +574,53 @@ benchmark/scorers/
 
 ## 10. 实施顺序
 
-### Phase 1: 基础设施 + Backend + System-Architecture
+### Phase 1: 基础设施 + Backend + System-Architecture (✅ 已完成)
 - CompositeScorer 实现
 - 修改 BigCodeBenchAdapter，将 `canonical_solution` 写入 metadata
 - Backend 7 个子 Scorer（不含 LLM 依赖的维度）
 - System-Architecture 5 个子 Scorer（全部正则匹配）
-- DIMENSION_REGISTRY 更新
+- DIMENSION_REGISTRY 更新（全部 4 个维度统一使用 CompositeScorer）
 - 数据库写入逻辑更新
 
-### Phase 2: Frontend + MATH
+### Phase 2: Frontend + MATH (✅ 已完成)
 - Frontend 7 个子 Scorer
 - Playwright 执行环境搭建
 - MATH 5 个子 Scorer（含 LLM Judge）
 - LLM Judge 缓存机制
 
-### Phase 3: 题目扩展 + 报告
-- FrontCode 题目扩展到 15-20 题
-- 雷达图报告生成
+### Phase 3: 题目扩展 + 报告 (✅ 已完成)
+- FrontCode 题目扩展到 22 题（覆盖 7 种类型）
+- 雷达图报告生成（SVG 动态渲染）
 - 排行榜各维度分数展示
+
+## 11. DIMENSION_REGISTRY
+
+所有维度统一使用 CompositeScorer 工厂函数：
+
+```python
+DIMENSION_REGISTRY = {
+    "reasoning": (MATHAdapter, create_reasoning_composite, SingleTurnEvaluator),
+    "backend-dev": (BigCodeBenchAdapter, create_backend_composite, SingleTurnEvaluator),
+    "system-architecture": (MMLUProAdapter, create_sysarch_composite, SingleTurnEvaluator),
+    "frontend-dev": (FrontCodeAdapter, create_frontend_composite, SingleTurnEvaluator),
+}
+```
+
+`_run_evaluation` 中统一创建 scorer：
+- `reasoning`：`CompositeScorer(create_reasoning_composite(llm=llm))`（需要 llm 传给 LLM Judge）
+- 其他维度：`CompositeScorer(scorer_factory())`
+
+## 12. FrontCode 题目分布
+
+| 类型 | 数量 | 难度 |
+|------|------|------|
+| html | 3 | 2 easy + 1 medium |
+| css | 4 | 1 easy + 3 medium |
+| javascript | 4 | 4 medium |
+| react | 4 | 4 medium |
+| typescript | 2 | 2 medium |
+| accessibility | 2 | 2 hard |
+| complex | 3 | 1 medium + 2 hard |
+| **总计** | **22** | 2 easy + 11 medium + 4 hard + 5 unknown |
+
+所有 22 题均包含 `test_cases` 和 `difficulty` 字段。
