@@ -433,8 +433,8 @@ class LLMEvalAdapter:
             finish_reason=final_finish_reason,
         )
 
-    def _calc_backoff(self, exc: Exception, attempt: int) -> int:
-        """根据异常类型计算退避时间。"""
+    def _calc_backoff(self, exc: Exception, attempt: int) -> float:
+        """根据异常类型计算退避时间（秒）。"""
         is_rate_limited = (
             isinstance(exc, httpx.HTTPStatusError)
             and exc.response.status_code == 429
@@ -443,8 +443,8 @@ class LLMEvalAdapter:
             retry_after = exc.response.headers.get("Retry-After")
             if retry_after:
                 try:
-                    return min(int(retry_after), 120)
+                    return min(float(retry_after), 120.0)
                 except ValueError:
                     pass
-            return min(10 * (2 ** attempt), 120)
-        return min(2 * (2 ** attempt), 120)
+            return min(10 * (2 ** attempt), 120.0)
+        return min(2 * (2 ** attempt), 120.0)

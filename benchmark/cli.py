@@ -282,12 +282,10 @@ async def _run_evaluation(
     evaluator = evaluator_cls()
     llm = LLMEvalAdapter(model=model)
 
-    # judge 使用独立的 LLM，避免被测模型和 judge 是同一个导致偏差
-    judge_model = os.getenv("JUDGE_MODEL", "opencode-go-gk/kimi-k2.5")
-    judge_llm = LLMEvalAdapter(model=judge_model)
-
-    # reasoning 需要 judge_llm 实例传给 LLM Judge
+    # reasoning 需要 judge LLM 实例传给 LLM Judge（其他维度不需要）
     if dimension == "reasoning":
+        judge_model = os.getenv("JUDGE_MODEL", "opencode-go-gk/kimi-k2.5")
+        judge_llm = LLMEvalAdapter(model=judge_model)
         scorer = CompositeScorer(scorer_factory(llm=judge_llm))
     else:
         scorer = CompositeScorer(scorer_factory())
@@ -364,7 +362,9 @@ async def _run_evaluation(
                 from benchmark.analysis.fingerprint import FingerprintManager
 
                 fm = FingerprintManager()
-                results = db.get_results(model=model, dimension="probe", run_id=run_id)
+                results = await asyncio.to_thread(
+                    db.get_results, model=model, dimension="probe", run_id=run_id,
+                )
                 signals = await db.aget_quality_signals_for_run(run_id)
                 scores = [float(r["final_score"]) for r in results]
 
