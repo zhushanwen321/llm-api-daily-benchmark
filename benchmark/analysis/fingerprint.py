@@ -62,22 +62,24 @@ class FingerprintManager:
         model: str,
         scores: list[float],
         quality_signals: list[dict],
+        run_id: str = "",
     ) -> dict:
         """生成指纹向量（33 维）并保存。"""
-        return self.generate_fingerprint_sync(model, scores, quality_signals)
+        return self.generate_fingerprint_sync(model, scores, quality_signals, run_id=run_id)
 
     def generate_fingerprint_sync(
         self,
         model: str,
         scores: list[float],
         quality_signals: list[dict],
+        run_id: str = "",
     ) -> dict:
         """同步版本的指纹生成。"""
         vector = self._build_vector(scores, quality_signals)
         fingerprint = {
             "model": model,
             "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f"),
-            "run_id": "",
+            "run_id": run_id,
             "vector": vector,
         }
 
@@ -125,11 +127,21 @@ class FingerprintManager:
                 # 只有基线，没有其他指纹
                 return {
                     "model": model,
-                    "similarity": 1.0,
-                    "status": "match",
+                    "similarity": 0.0,
+                    "status": "no_comparison",
                     "baseline_timestamp": baseline.get("timestamp"),
-                    "current_timestamp": baseline.get("timestamp"),
+                    "current_timestamp": None,
                 }
+
+        # 跳过自比较：最新指纹与基线时间戳相同说明是同一次运行
+        if fingerprint.get("timestamp") == baseline.get("timestamp"):
+            return {
+                "model": model,
+                "similarity": 0.0,
+                "status": "no_comparison",
+                "baseline_timestamp": baseline.get("timestamp"),
+                "current_timestamp": None,
+            }
 
         similarity = _cosine_similarity(baseline["vector"], fingerprint["vector"])
         status: Literal["match", "suspected_model_change"] = (

@@ -205,14 +205,27 @@ class TestCompareWithBaseline:
         assert result["baseline_timestamp"] is None
 
     def test_match_when_identical(self, mgr: FingerprintManager):
-        """相同分数应产生 similarity ≈ 1.0。"""
+        """两次相同分数应产生 similarity ≈ 1.0。"""
         scores = [100.0] * 20
         qs = _make_quality_signals(20)
+        mgr.generate_fingerprint_sync("test/model", scores, qs)
         mgr.generate_fingerprint_sync("test/model", scores, qs)
 
         result = mgr.compare_with_baseline("test/model")
         assert result["status"] == "match"
         assert result["similarity"] == pytest.approx(1.0)
+
+    def test_no_comparison_on_first_run(self, mgr: FingerprintManager):
+        """首次运行只有基线，没有其他指纹可对比，应返回 no_comparison。"""
+        scores = [100.0] * 20
+        qs = _make_quality_signals(20)
+        mgr.generate_fingerprint_sync("test/model", scores, qs)
+
+        result = mgr.compare_with_baseline("test/model")
+        assert result["status"] == "no_comparison"
+        assert result["similarity"] == 0.0
+        assert result["baseline_timestamp"] is not None
+        assert result["current_timestamp"] is None
 
     def test_suspected_change_below_threshold(self, mgr: FingerprintManager):
         fp1, fp2 = self._make_two_runs(mgr, "test/model")

@@ -32,6 +32,7 @@ from benchmark.scorers.choice_match_scorer import ChoiceMatchScorer
 from benchmark.scorers.composite import CompositeScorer
 from benchmark.scorers.execution_scorer import ExecutionScorer
 from benchmark.scorers.keyword_match_scorer import KeywordMatchScorer
+from benchmark.scorers.probe_scorer import ProbeScorer
 from benchmark.scorers.math_scorer import MathScorer
 from benchmark.scorers.system_architecture import create_sysarch_composite
 
@@ -682,7 +683,7 @@ async def _run_probe(model: str, samples: int, debug: bool) -> None:
 
         coros = [
             _evaluate_task(
-                i, task, model, llm, KeywordMatchScorer(), evaluator,
+                i, task, model, llm, ProbeScorer(), evaluator,
                 db, run_id, len(tasks), debug,
                 dimension="probe", system_message=_THINKING_SYSTEM_MESSAGE,
             )
@@ -728,7 +729,7 @@ async def _run_probe(model: str, samples: int, debug: bool) -> None:
             scores = [float(r["final_score"]) for r in results]
 
             fp = fm.generate_fingerprint_sync(
-                model=model, scores=scores, quality_signals=signals,
+                model=model, scores=scores, quality_signals=signals, run_id=run_id,
             )
             comparison = fm.compare_with_baseline(model=model)
 
