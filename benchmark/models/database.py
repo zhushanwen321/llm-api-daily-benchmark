@@ -269,6 +269,7 @@ class Database:
         self,
         model: Optional[str] = None,
         dimension: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> list[dict]:
         """查询评测结果。"""
         conn = self._get_conn()
@@ -287,6 +288,9 @@ class Database:
         if dimension:
             query += " AND e.dimension = ?"
             params.append(dimension)
+        if run_id:
+            query += " AND r.run_id = ?"
+            params.append(run_id)
         query += " ORDER BY r.created_at DESC"
 
         cursor = conn.execute(query, params)

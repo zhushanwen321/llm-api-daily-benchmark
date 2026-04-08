@@ -592,3 +592,179 @@ def status() -> None:
     console.print(f"  Models: {sched.models}")
     console.print(f"  Dimensions: {sched.dimensions}")
     console.print(f"  Samples: {sched.samples}")
+
+
+# ── Probe 高频监控 ──────────────────────────────────────────────
+
+
+@cli.group()
+def probe() -> None:
+    """高频 Probe 监控。"""
+
+
+@probe.command()
+@click.option("--model", required=True, help="模型标识")
+@click.option("--samples", default=20, help="题目数量")
+@click.option("--debug", is_flag=True, default=False)
+@click.pass_context
+def run(ctx: click.Context, model: str, samples: int, debug: bool) -> None:
+    """单次 Probe 运行。"""
+    if not debug:
+        debug = ctx.obj.get("debug", False)
+    _setup_proxy()
+    asyncio.run(_run_probe(model, samples, debug))
+
+
+@probe.command()
+@click.option("--models", required=True, help="逗号分隔的模型列表")
+@click.option("--interval-minutes", default=120, help="运行间隔（分钟）")
+@click.pass_context
+def schedule(ctx: click.Context, models: str, interval_minutes: int) -> None:
+    """定期运行 Probe 监控。"""
+    from apscheduler.schedulers.background import BackgroundScheduler
+
+    _setup_proxy()
+    models_list = [m.strip() for m in models.split(",") if m.strip()]
+
+    sched = BackgroundScheduler()
+
+    def _probe_job():
+        for model in models_list:
+            logger.info(f"Probe scheduled run: {model}")
+            asyncio.run(_run_probe(model, 20, False))
+
+    sched.add_job(_probe_job, "interval", minutes=interval_minutes)
+    sched.start()
+
+    console.print("[green]Probe 调度已启动[/green]")
+    console.print(f"  Models: {', '.join(models_list)}")
+    console.print(f"  Interval: {interval_minutes} 分钟")
+    console.print("  Ctrl+C 停止")
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        sched.shutdown()
+        console.print("[yellow]Probe 调度已停止[/yellow]")
+
+
+async def _run_probe(model: str, samples: int, debug: bool) -> None:
+    """Probe 运行主流程。"""
+    from benchmark.adapters.probe_adapter import ProbeAdapter
+
+    adapter = ProbeAdapter()
+    llm = LLMEvalAdapter(model=model)
+    evaluator = SingleTurnEvaluator()
+
+    tasks = adapter.load()[:samples]
+    if not tasks:
+        console.print("[red]No probe tasks loaded.[/red]")
+        return
+
+    console.print(
+        f"[bold green]Starting probe:[/bold green] "
+        f"{len(tasks)} tasks, model={model}"
+    )
+
+    run_id = str(uuid.uuid4())[:12]
+    run = EvalRun(
+        run_id=run_id,
+        model=model,
+        dimension="probe",
+        dataset="probe",
+        started_at=datetime.now(),
+        status="running",
+    )
+    db = Database()
+    try:
+        db.create_run(run)
+
+        coros = [
+            _evaluate_task(
+                i, task, model, llm, KeywordMatchScorer(), evaluator,
+                db, run_id, len(tasks), debug,
+                dimension="probe", system_message=_THINKING_SYSTEM_MESSAGE,
+            )
+            for i, task in enumerate(tasks)
+        ]
+
+        total_score = 0.0
+        passed_count = 0
+        failed_count = 0
+        with Progress() as progress:
+            task_progress = progress.add_task("Probing", total=len(tasks))
+            for coro in asyncio.as_completed(coros):
+                r = await coro
+                progress.advance(task_progress)
+                if isinstance(r, Exception):
+                    failed_count += 1
+                    continue
+                if r.get("error"):
+                    failed_count += 1
+                total_score += r["score"]
+                if r["passed"]:
+                    passed_count += 1
+
+        if failed_count == 0:
+            db.finish_run(run_id, "completed")
+        else:
+            db.finish_run(run_id, "partial" if failed_count < len(tasks) else "failed")
+
+        avg_score = total_score / len(tasks) if tasks else 0
+        console.print(
+            f"\n[bold]Probe complete:[/bold] run_id={run_id}\n"
+            f"  Average Score: [bold]{avg_score:.1f}[/bold]\n"
+            f"  Passed: {passed_count}/{len(tasks)}"
+        )
+
+        # 指纹生成 + 基线对比
+        try:
+            from benchmark.analysis.fingerprint import FingerprintManager
+
+            fm = FingerprintManager()
+            results = db.get_results(model=model, dimension="probe", run_id=run_id)
+            signals = await db.aget_quality_signals_for_run(run_id)
+            scores = [float(r["final_score"]) for r in results]
+
+            fp = fm.generate_fingerprint_sync(
+                model=model, scores=scores, quality_signals=signals,
+            )
+            comparison = fm.compare_with_baseline(model=model)
+
+            status_color = "green" if comparison["status"] == "match" else "red"
+            console.print(
+                f"  Fingerprint: [{status_color}]{comparison['status']}"
+                f"[/{status_color}] "
+                f"similarity={comparison.get('similarity', 'N/A')}"
+            )
+        except Exception as exc:
+            logger.warning(f"指纹分析失败: {exc}")
+
+        # 稳定性分析
+        try:
+            from benchmark.analysis.stability_analyzer import StabilityAnalyzer
+
+            analyzer = StabilityAnalyzer(db=db)
+            report = await analyzer.run(model=model, run_id=run_id, dimension="probe")
+            r_color = {
+                "stable": "green",
+                "suspicious": "yellow",
+                "degraded": "red",
+            }.get(report.overall_status, "white")
+            console.print(
+                f"  Stability: [{r_color}]{report.overall_status}[/{r_color}] "
+                f"{report.summary}"
+            )
+        except Exception as exc:
+            logger.warning(f"稳定性分析失败: {exc}")
+
+    except Exception:
+        console.print("[red]Probe failed![/red]")
+        try:
+            db.finish_run(run_id, "failed")
+        except Exception:
+            pass
+        raise
+    finally:
+        db.close()
