@@ -70,6 +70,7 @@ class LLMEvalAdapter:
         temperature: float = 0.0,
         max_tokens: int | None = None,
         system_message: str | None = None,
+        disable_thinking: bool = False,
     ) -> GenerateResponse:
         """异步调用 LLM 生成文本。每次 attempt 独立 acquire/release semaphore。"""
         cfg = self._get_model_config(model)
@@ -104,7 +105,7 @@ class LLMEvalAdapter:
             "stream_options": {"include_usage": True},
         }
         thinking_cfg = cfg.get("thinking", {})
-        if thinking_cfg.get("enabled") and thinking_cfg.get("request_params"):
+        if not disable_thinking and thinking_cfg.get("enabled") and thinking_cfg.get("request_params"):
             payload.update(thinking_cfg["request_params"])
 
         limiter = self._get_or_create_async_limiter(model)

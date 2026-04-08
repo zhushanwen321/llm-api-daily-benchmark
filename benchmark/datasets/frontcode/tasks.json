@@ -4,31 +4,480 @@
       "id": "frontcode_html_1",
       "type": "html",
       "prompt": "Create a semantic HTML structure for a blog post page. Include: a header with navigation, a main article area with heading and paragraphs, and a footer with copyright.",
-      "keywords": ["header", "nav", "main", "article", "h1", "footer"]
+      "keywords": [
+        "header",
+        "nav",
+        "main",
+        "article",
+        "h1",
+        "footer"
+      ],
+      "test_cases": [
+        "页面中存在 <header> 标签",
+        "页面中存在 <nav> 标签",
+        "页面中存在 <main> 标签",
+        "页面中存在 <article> 标签",
+        "页面中存在 <footer> 标签"
+      ],
+      "difficulty": "easy"
     },
     {
       "id": "frontcode_css_1",
       "type": "css",
       "prompt": "Write CSS to create a responsive card layout with: white background, subtle shadow, rounded corners (8px), padding (20px), and flexbox center alignment for content.",
-      "keywords": ["background", "box-shadow", "border-radius", "padding", "display", "flex", "justify-content", "align-items"]
+      "keywords": [
+        "background",
+        "box-shadow",
+        "border-radius",
+        "padding",
+        "display",
+        "flex",
+        "justify-content",
+        "align-items"
+      ],
+      "test_cases": [
+        "卡片元素的 display 属性为 flex",
+        "卡片元素具有 border-radius 且值包含 8px",
+        "卡片元素具有 padding 且值包含 20px",
+        "卡片元素具有 box-shadow 属性",
+        "flex 容器使用了 justify-content: center 或 align-items: center"
+      ],
+      "difficulty": "easy"
     },
     {
       "id": "frontcode_js_1",
       "type": "javascript",
       "prompt": "Write JavaScript to implement a debounce function that takes a function and delay (ms), returns a debounced version that only executes after delay milliseconds have passed since the last invocation.",
-      "keywords": ["function", "setTimeout", "clearTimeout", "return", "arguments"]
+      "keywords": [
+        "function",
+        "setTimeout",
+        "clearTimeout",
+        "return",
+        "arguments"
+      ],
+      "test_cases": [
+        "代码中定义了一个名为 debounce 的函数",
+        "debounce 函数返回一个新的函数",
+        "返回的函数内部使用了 setTimeout 和 clearTimeout",
+        "在 delay 时间内多次调用返回的函数，原函数最多执行一次"
+      ],
+      "difficulty": "medium"
     },
     {
       "id": "frontcode_react_1",
       "type": "react",
       "prompt": "Create a React functional component called 'Button' that accepts: children (for label), onClick (callback), and variant ('primary' | 'secondary' props. Use Tailwind CSS classes for styling.",
-      "keywords": ["React", "useState", "props", "onClick", "children", "variant"]
+      "keywords": [
+        "React",
+        "useState",
+        "props",
+        "onClick",
+        "children",
+        "variant"
+      ],
+      "test_cases": [
+        "代码中定义了一个名为 Button 的函数组件",
+        "Button 组件接受 children 属性并渲染它",
+        "Button 组件接受 onClick 属性并绑定到按钮的点击事件",
+        "Button 组件接受 variant 属性，根据 variant 值应用不同的样式类",
+        "variant='primary' 和 variant='secondary' 时按钮的样式不同"
+      ],
+      "difficulty": "easy"
     },
     {
       "id": "frontcode_complex_1",
       "type": "complex",
       "prompt": "Build a complete Todo List component with: add task input, delete button for each item, and checkbox to toggle completion. Use React hooks (useState) and include basic CSS styling.",
-      "keywords": ["useState", "map", "filter", "onChange", "onClick", "checkbox", "input"]
+      "keywords": [
+        "useState",
+        "map",
+        "filter",
+        "onChange",
+        "onClick",
+        "checkbox",
+        "input"
+      ],
+      "test_cases": [
+        "页面中包含一个 input 输入框用于输入任务",
+        "页面中包含一个添加按钮或支持回车添加任务",
+        "列表中每项旁边有删除按钮",
+        "列表中每项有 checkbox 用于标记完成状态",
+        "点击删除按钮后对应项从列表中移除"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_html_6",
+      "type": "html",
+      "prompt": "请使用 HTML5 语义化标签构建一个简单的博客网页结构。要求页面包含一个页眉，页眉内部需包含导航栏；一个主要的内容区域，内容区域内必须包含至少一个文章区块；一个独立的侧边栏；以及一个页脚。不需要编写复杂的 CSS 样式，只需体现出清晰的文档结构和语义化标签即可。",
+      "keywords": [
+        "<header>",
+        "<nav>",
+        "<main>",
+        "<article>",
+        "<aside>",
+        "<footer>"
+      ],
+      "test_cases": [
+        "页面中存在 <header> 标签",
+        "页面中存在 <nav> 标签",
+        "页面中存在 <main> 标签",
+        "页面中存在 <article> 标签",
+        "页面中存在 <aside> 标签",
+        "页面中存在 <footer> 标签"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "frontcode_html_7",
+      "type": "html",
+      "prompt": "请编写一个用户注册表单的 HTML 结构。表单需要包含以下字段：用户名（文本输入）、密码（密码输入）、邮箱（邮箱输入）和性别（单选按钮）。要求使用 <fieldset> 和 <legend> 对表单进行分组，为所有的输入框添加关联的 <label> 标签（通过 for 属性关联），并将密码和邮箱输入框设置为必填。最后需要有一个提交按钮。",
+      "keywords": [
+        "<form>",
+        "<fieldset>",
+        "<legend>",
+        "<label>",
+        "<input>",
+        "required",
+        "type=\"radio\""
+      ],
+      "test_cases": [
+        "页面中存在 <form> 元素",
+        "页面中存在 <fieldset> 和 <legend> 标签",
+        "页面中存在至少两个 type=\"radio\" 的 <input> 元素",
+        "所有的 <label> 标签都有 for 属性，且对应的 <input> 都有匹配的 id 属性",
+        "页面中存在带有 required 属性的 <input> 元素",
+        "表单内存在 type=\"submit\" 的提交按钮"
+      ],
+      "difficulty": "easy"
+    },
+    {
+      "id": "frontcode_css_8",
+      "type": "css",
+      "prompt": "请使用 HTML 和 CSS 创建一个响应式的图片卡片展示页面。页面包含一个外层容器，内部至少包含 3 个卡片元素，每个卡片包含一张图片和一段文字。具体要求如下：\n1. 容器必须使用 Flexbox 布局。\n2. 在桌面端（视口宽度大于 768px），卡片水平排列，均匀分布且居中。\n3. 在移动端（视口宽度小于等于 768px），卡片取消水平排列，改为垂直堆叠，每个卡片宽度占满容器。\n4. 为卡片添加悬停交互效果：当鼠标悬停在卡片上时，卡片需要在 0.3 秒内平滑地放大到 1.05 倍，并添加轻微的阴影效果。",
+      "keywords": [
+        "display: flex",
+        "flex-wrap",
+        "@media",
+        "transform: scale",
+        "transition"
+      ],
+      "test_cases": [
+        "外层容器的 display 属性必须设置为 flex。",
+        "当视口宽度设置为 1000px 时，卡片应水平排列。",
+        "当视口宽度调整为 500px 时，卡片应垂直堆叠排列（例如通过 flex-direction: column 或强制 width: 100% 换行实现）。",
+        "卡片默认状态必须包含 transition 属性，且过渡时间必须包含 0.3s 或 300ms。",
+        "鼠标悬停时，卡片的计算样式中的 transform 属性必须包含 scale(1.05) 或 scale(1.1)。"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_css_9",
+      "type": "css",
+      "prompt": "请使用纯 HTML 和 CSS 实现一个自适应的图片画廊布局。要求如下：\n1. 使用 CSS Grid 布局来构建画廊容器。\n2. 画廊容器宽度为 100%，网格项目的最小宽度为 250px，并且能够根据容器宽度自动填充列。\n3. 网格项目之间的行和列间距统一设置为 16px。\n4. 为每个网格项目添加一个入场动画：页面加载时，网格项目从完全透明渐变到完全不透明，并且从下方 20px 的位置向上移动到正常位置，动画持续时间为 0.6 秒。",
+      "keywords": [
+        "display: grid",
+        "grid-template-columns",
+        "repeat",
+        "auto-fill",
+        "minmax",
+        "@keyframes",
+        "opacity",
+        "animation"
+      ],
+      "test_cases": [
+        "画廊容器必须使用 display: grid 属性。",
+        "grid-template-columns 必须结合使用 repeat、auto-fill 和 minmax 函数，且最小值包含 250px。",
+        "网格间距 必须设置为 16px (gap, row-gap, column-gap 均可)。",
+        "必须定义了 @keyframes 动画规则，且动画中必须包含 opacity 和 transform (或 translateY) 的状态变化。",
+        "网格项目必须应用了 animation 属性，且动画持续时间需包含 0.6s 或 600ms。"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_css_10",
+      "type": "css",
+      "prompt": "使用 HTML 和 CSS 实现一个经典的圣杯布局。页面分为 Header、Sidebar、Main Content、Footer 四个部分。具体要求如下：\n1. 使用 CSS Grid 进行整体页面骨架布局，定义对应的网格区域。\n2. 在桌面端（视口宽度大于 768px）：Header 在顶部占满整行，Footer 在底部占满整行。Sidebar 固定宽度 200px 在左侧，Main Content 占据右侧剩余空间。\n3. 在移动端（视口宽度小于等于 768px）：布局改为单列垂直堆叠，所有区块宽度均为 100%，顺序为 Header、Main Content、Sidebar、Footer。\n4. Sidebar 的背景必须使用线性渐变，从顶部的浅蓝色渐变到底部的深蓝色。",
+      "keywords": [
+        "display: grid",
+        "grid-template-areas",
+        "grid-template-columns",
+        "@media",
+        "linear-gradient",
+        "background"
+      ],
+      "test_cases": [
+        "页面最外层容器必须使用 display: grid 属性。",
+        "桌面端（宽度 > 768px）下，必须使用 grid-template-areas 或 grid-template-columns 定义了多列布局。",
+        "桌面端下，Sidebar 区块的宽度必须被限制为固定 200px。",
+        "移动端（宽度 <= 768px）下，所有区块必须垂直排列且宽度均为 100%。",
+        "Sidebar 区块必须具有线性渐变背景 (通过 linear-gradient 函数实现)。"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_javascript_11",
+      "type": "javascript",
+      "prompt": "请使用原生 JavaScript 实现一个带有防抖功能的搜索框组件。要求提供一个完整的单文件 HTML 代码。页面需要包含一个文本输入框（id为 'searchInput'）和一个用于展示结果的 div（id为 'result'）。请手写一个名为 debounce 的防抖函数，并在输入框的 input 事件中使用它。当用户在输入框中输入内容时，只有停止输入 500 毫秒后，才会在下方的 result 元素中显示“搜索中: [当前输入的内容]”。不能使用 lodash 等第三方库。",
+      "keywords": [
+        "debounce",
+        "setTimeout",
+        "clearTimeout",
+        "addEventListener",
+        "searchInput"
+      ],
+      "test_cases": [
+        "页面中必须包含一个 id 为 'searchInput' 的 input 元素和一个 id 为 'result' 的 div 元素。",
+        "JavaScript 代码中必须定义一个名为 debounce 的函数。",
+        "debounce 函数内部必须使用了 setTimeout 和 clearTimeout。",
+        "如果在输入框中快速输入 'abc'（每次按键间隔 100ms，总时长 300ms），在 400ms 时检查，result 元素的 innerText 应该为空或初始状态。",
+        "如果在输入框中快速输入 'abc' 后等待 600ms，result 元素的 innerText 必须包含 'abc'。"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_javascript_12",
+      "type": "javascript",
+      "prompt": "请使用“策略模式”结合原生 JavaScript 实现一个简单的商品折扣计算器。提供完整的单文件 HTML 代码。页面包含一个输入框（id为 'price'）用于输入商品原价，一个下拉选择框（id为 'discountType'）包含三个选项：'不打折'、'打九折'、'打八折'，以及一个计算按钮（id为 'calcBtn'）和一个结果展示 div（id为 'result'）。要求在 JavaScript 中定义一个策略对象（例如命名为 strategies 或 strategyMap），将不同的折扣计算逻辑封装为对应的函数。点击按钮后，根据选择的策略计算并展示出折后价格。",
+      "keywords": [
+        "strategies",
+        "strategy",
+        "document.getElementById",
+        "addEventListener",
+        "value"
+      ],
+      "test_cases": [
+        "页面必须包含 id 分别为 'price'、'discountType'、'calcBtn' 和 'result' 的元素。",
+        "必须定义一个包含计算逻辑的策略对象（变量名包含 strategy 或 strategies）。",
+        "在输入框输入 100，下拉框选择 '不打折'，点击按钮后，result 元素的文本应包含 '100'。",
+        "在输入框输入 100，下拉框选择 '打九折'，点击按钮后，result 元素的文本应包含 '90'。",
+        "在输入框输入 100，下拉框选择 '打八折'，点击按钮后，result 元素的文本应包含 '80'。"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_javascript_13",
+      "type": "javascript",
+      "prompt": "请实现一个带有节流功能的时间记录器。提供完整的单文件 HTML 代码。页面包含一个展示当前时间的元素（id为 'clock'）和一个记录按钮（id为 'recordBtn'）。使用 setInterval 每秒更新一次 clock 元素的时间，时间格式必须为 'YYYY-MM-DD HH:mm:ss'。请手写一个名为 throttle 的节流函数，并将它绑定在 recordBtn 的点击事件上。点击按钮时，将当前时间添加到页面的一个列表（id为 'recordList'）中作为列表项。要求在 2 秒内，无论点击多少次按钮，最多只能成功添加 1 次记录。",
+      "keywords": [
+        "throttle",
+        "setInterval",
+        "new Date",
+        "getFullYear",
+        "padStart",
+        "recordList"
+      ],
+      "test_cases": [
+        "页面必须包含 id 为 'clock'、'recordBtn' 和 'recordList' 的元素。",
+        "必须定义一个名为 throttle 的函数，且内部通过时间戳或定时器实现了节流逻辑。",
+        "页面加载后等待 1.5 秒，id 为 clock 的元素内部应该显示包含当前年份和标准时间格式的文本（匹配 YYYY-MM-DD HH:mm:ss）。",
+        "连续快速点击 recordBtn 按钮 5 次（在 500ms 内完成），此时 id 为 recordList' 下的 li 子元素数量应该为 1。",
+        "第一次点击 recordBtn 后等待 3 秒再次点击，id 为 'recordList' 下的 li 子元素数量应该变为 2。"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_react_14",
+      "type": "react",
+      "prompt": "请使用 React 创建一个名为 CountdownTimer 的函数组件，实现一个 60 秒的倒计时器。\n具体要求如下：\n1. 组件内部维护剩余秒数和计时器运行状态。\n2. 页面上显示当前的剩余秒数，初始值为 60。\n3. 包含两个按钮：「开始/暂停」按钮和「重置」按钮。\n4. 点击「开始/暂停」按钮可以切换倒计时的运行和暂停状态。\n5. 点击「重置」按钮，秒数恢复为 60，且计时器处于暂停状态。\n6. 当倒计时到达 0 时，自动停止计时，状态变为暂停，且秒数停留在 0 不会变成负数。\n7. 要求使用 useEffect 来管理 setInterval，并在组件卸载时清除定时器。",
+      "keywords": [
+        "useState",
+        "useEffect",
+        "setInterval",
+        "clearInterval",
+        "return"
+      ],
+      "test_cases": [
+        "组件渲染后，页面上应显示初始倒计时秒数 60",
+        "点击「开始/暂停」按钮后，显示的秒数应每隔1秒递减 1",
+        "在倒计时运行过程中点击「开始/暂停」按钮，秒数应停止递减",
+        "点击「重置」按钮后，页面上的秒数应立即恢复为 60 且停止递减",
+        "当秒数递减到 0 时，倒计时必须自动停止，且继续保持显示 0，不能出现负数"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_react_15",
+      "type": "react",
+      "prompt": "请使用 React 创建一个名为 TodoList 的函数组件，实现一个待办事项列表应用。\n具体要求如下：\n1. 包含一个文本输入框 (input) 和一个「添加」按钮。\n2. 点击「添加」按钮或按下回车键时，如果输入框不为空，则将输入的内容添加到下方的列表中，并清空输入框。\n3. 列表中的每一项待办事项旁边都需要有一个「删除」按钮和一个勾选框 (checkbox)。\n4. 点击「删除」按钮，可以将其对应的待办事项从列表中移除。\n5. 勾选待办事项的勾选框后，该事项的文本需要加上删除线效果 (text-decoration: line-through)。\n6. 所有的状态管理（如列表数据、输入框内容）必须使用 React Hooks (如 useState) 来实现。",
+      "keywords": [
+        "useState",
+        "map",
+        "filter",
+        "onChange",
+        "input"
+      ],
+      "test_cases": [
+        "页面必须包含一个 input 输入框和一个「添加」按钮",
+        "在输入框输入文本并点击「添加」按钮后，列表区域应显示出刚添加的事项文本，同时输入框被清空",
+        "每个列表项必须包含一个勾选框 (checkbox) 和一个「删除」按钮",
+        "点击某条事项的「删除」按钮后，该事项必须从页面列表中消失",
+        "勾选某条事项的复选框后，该事项的文本内容必须具有 line-through 的 CSS 划线效果"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_react_16",
+      "type": "react",
+      "prompt": "请使用 React 创建一个名为 RegistrationForm 的函数组件，实现一个带有验证功能的用户注册表单。\n具体要求如下：\n1. 表单包含「用户名」、「密码」和「确认密码」三个输入框，以及一个「提交」按钮。\n2. 所有的输入框必须实现为受控组件。\n3. 提交表单时（点击按钮或回车），阻止默认的页面刷新行为。\n4. 验证逻辑：如果「密码」与「确认密码」输入的值不一致，在表单下方显示红色的错误提示文字：“密码不匹配”。\n5. 验证逻辑：如果「密码」与「确认密码」一致，且用户名不为空，错误提示消失，并调用 window.alert 弹出当前输入的用户名。如果用户名为空，则不触发 alert。\n6. 错误提示必须实时响应，或者在表单提交时进行校验并渲染。",
+      "keywords": [
+        "useState",
+        "onSubmit",
+        "preventDefault",
+        "value",
+        "target"
+      ],
+      "test_cases": [
+        "页面必须包含「用户名」、「密码」和「确认密码」三个输入框，以及一个「提交」按钮",
+        "在表单提交时，必须阻止浏览器的默认刷新行为",
+        "所有的输入框必须作为受控组件，其 value 属性由 React 的 state 控制",
+        "当「密码」与「确认密码」输入不一致并触发表单提交时，页面上必须出现包含“密码不匹配”文字的错误提示",
+        "当「密码」与「确认密码」输入一致，且输入了用户名后触发表单提交，页面上的错误提示必须消失，并弹出包含所输入用户名的 alert 弹窗"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_typescript_17",
+      "type": "typescript",
+      "prompt": "请使用 TypeScript 实现一个轻量级且类型安全的状态管理容器。\n要求如下：\n1. 定义一个泛型接口 `StateSchema`，要求它必须包含一个 `version: number` 属性，并允许扩展其他任意属性。\n2. 创建一个泛型类 `StateManager<T extends StateSchema>`。\n3. 该类需包含一个公开属性 `state`，并在构造函数 `constructor(initialState: T)` 中对其初始化。\n4. 实现一个公开方法 `updateState(partial: Partial<T>): void`，该方法将传入的部分状态浅合并到当前的 `this.state` 中。\n5. 实现一个公开方法 `getVersion(): number`，用于返回当前 `this.state.version` 的值。",
+      "keywords": [
+        "interface",
+        "StateSchema",
+        "class",
+        "StateManager",
+        "<T extends StateSchema>",
+        "Partial<T>",
+        "constructor",
+        "updateState",
+        "getVersion"
+      ],
+      "test_cases": [
+        "代码中必须包含名为 StateManager 的类，且可以被正确实例化。",
+        "StateManager 实例化后，拥有公开属性 state 能够访问到初始传入的状态对象。",
+        "调用实例的 updateState({version: 2}) 方法后，state.version 的值应变为 2，且 state 中未被覆盖的属性保持不变。",
+        "调用实例的 getVersion() 方法，必须返回正确的 number 类型的版本号。",
+        "代码必须使用泛型约束且 TypeScript 类型检查通过，state 的属性访问受到严格的类型约束。"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_typescript_18",
+      "type": "typescript",
+      "prompt": "请使用 TypeScript 实现一个类型安全的数据过滤管道。\n要求如下：\n1. 定义一个泛型接口 `FilterCondition<T>`，它包含两个属性：`key: keyof T` 和 `value: T[keyof T]`。\n2. 定义一个类型别名 `FilterFunction<T>`，它描述了一个函数，该函数接收一个参数 `data: T[]`，并返回 `T[]`。\n3. 实现一个泛型工厂函数 `createFilter<T>(conditions: FilterCondition<T>[]): FilterFunction<T>`。\n4. 该 `createFilter` 函数需返回一个闭包函数（符合 `FilterFunction<T>` 签名）。该闭包函数接收数组后，会根据传入的 `conditions` 数组进行过滤，只保留满足所有给定条件（即元素的指定 key 的值等于指定的 value）的对象。",
+      "keywords": [
+        "interface",
+        "FilterCondition",
+        "keyof T",
+        "type",
+        "FilterFunction",
+        "createFilter",
+        "<T>",
+        "filter"
+      ],
+      "test_cases": [
+        "代码中必须存在 createFilter 函数且可以正常调用。",
+        "对于数组 [{id: 1, status: 'active'}, {id: 2, status: 'inactive'}]，使用条件 [{key: 'status', value: 'active'}] 调用 createFilter 得到过滤函数，执行后返回的数组长度必须为 1，且唯一元素的 id 为 1。",
+        "当 conditions 数组中包含多个条件时，返回的闭包函数需同时满足所有条件的元素才会被保留（AND 逻辑）。",
+        "当传入空的 conditions 数组（[]）时，返回的过滤函数应当返回原数组的完整拷贝（即不过滤任何元素）。",
+        "必须正确使用了泛型、接口和类型别名，保证传入的 condition.key 在编译时受到对象键的类型约束。"
+      ],
+      "difficulty": "medium"
+    },
+    {
+      "id": "frontcode_accessibility_19",
+      "type": "accessibility",
+      "prompt": "请实现一个完全符合 WAI-ARIA 规范的自定义可访问树形视图组件。该组件需展示一个至少包含两层的文件目录结构（例如包含‘文档’、‘图片’等节点，‘文档’下包含‘工作报告.docx’等子节点）。具体无障碍要求如下：\n1. 语义化 ARIA 角色：树的根元素必须具有 `role=\"tree\"`；可点击的树节点必须具有 `role=\"treeitem\"`；用于包裹子节点的容器必须具有 `role=\"group\"`。\n2. 状态管理：包含子节点的元素必须具有 `aria-expanded` 属性，展开时为 `true`，折叠时为 `false`。获得焦点的节点必须具有 `aria-selected=\"true\"`。\n3. 复杂键盘导航：\n   - `ArrowDown` / `ArrowUp`：在可见的 `treeitem` 节点之间上下移动焦点。\n   - `ArrowRight`：若当前节点折叠，则展开它；若已展开，则将焦点移至其第一个子节点。\n   - `ArrowLeft`：若当前节点展开，则折叠它；若折叠且是子节点，则将焦点移至其父节点。\n   - `Home` / `End`：将焦点迅速移动到当前树的第一个或最后一个可见节点。\n4. 焦点管理：请使用 `tabindex=\"-1\"` 管理节点的焦点，确保整棵树在文档流中只有一个 Tab 停靠位，利用 `aria-activedescendant` 或动态改变 `tabindex` 配合 JS 的 `.focus()` 实现焦点的视觉与逻辑切换。",
+      "keywords": [
+        "role=\"tree\"",
+        "role=\"treeitem\"",
+        "role=\"group\"",
+        "aria-expanded",
+        "aria-selected",
+        "tabindex",
+        "addEventListener",
+        "keydown",
+        "ArrowDown",
+        "ArrowRight",
+        "Home"
+      ],
+      "test_cases": [
+        "验证树的根容器元素具有 `role=\"tree\"` 属性。",
+        "验证包含子节点的树节点具有 `role=\"treeitem\"` 和正确的 `aria-expanded` 属性。",
+        "模拟在折叠的节点上触发 `ArrowRight` 键盘事件，验证该节点的 `aria-expanded` 值变为 'true'。",
+        "模拟触发 `ArrowDown` 键盘事件，验证焦点成功移动到了下一个可见的 `treeitem` 节点。",
+        "模拟触发 `Home` 键盘事件，验证焦点成功移动到了树结构中的第一个可见 `treeitem` 节点。"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "frontcode_accessibility_20",
+      "type": "accessibility",
+      "prompt": "请实现一个符合 WAI-ARIA 规范的模态对话框组件。页面初始包含一个用于触发对话框的“打开设置”按钮。点击该按钮后弹出模态对话框，对话框内部必须包含一个标题、一段说明文字、一个文本输入框以及“确认”和“取消”按钮。具体无障碍要求如下：\n1. 基础 ARIA 属性：对话框容器必须具有 `role=\"dialog\"` 和 `aria-modal=\"true\"`，并使用 `aria-labelledby` 将其指向内部的标题元素。\n2. 焦点捕获与初始焦点：对话框打开的瞬间，焦点必须自动移动到对话框内部的输入框（或第一个可交互元素）。\n3. 焦点陷阱：当对话框打开时，连续按下 `Tab` 或 `Shift+Tab`，焦点必须被严格限制在对话框内的交互元素（输入框、确认按钮、取消按钮）中循环，绝不能溢出到背后的主页面。\n4. 键盘关闭：按下 `Escape` 键必须能够关闭对话框。\n5. 焦点恢复：关闭对话框后，焦点必须精准返回到触发该对话框的“打开设置”按钮上。",
+      "keywords": [
+        "role=\"dialog\"",
+        "aria-modal",
+        "aria-labelledby",
+        "focus()",
+        "addEventListener",
+        "keydown",
+        "Escape",
+        "tabindex",
+        "Shift"
+      ],
+      "test_cases": [
+        "验证弹出的对话框容器元素包含 `role=\"dialog\"` 和 `aria-modal=\"true\"` 属性。",
+        "验证对话框的 `aria-labelledby` 属性值正确指向其内部包含的标题元素的 ID。",
+        "模拟在打开的对话框中触发 `Escape` 键盘事件，验证对话框被成功隐藏（如 display 变为 none 或包含 hidden 属性）。",
+        "模拟在对话框的最后一个按钮上触发 `Tab` 键盘事件，验证焦点成功跳转回对话框内的第一个交互元素（即输入框）。",
+        "模拟关闭对话框后，验证当前获得焦点的元素 (`document.activeElement`) 是触发该对话框的初始按钮。"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "frontcode_complex_21",
+      "type": "complex",
+      "prompt": "构建一个交互式股票K线图看板应用，要求支持数据模拟和鼠标十字准线交互。具体需求如下：\n1. **页面布局**：使用 Flex 或 Grid 布局。顶部是一个控制面板，包含一个股票代码下拉菜单（包含 'AAPL', 'GOOGL', 'TSLA' 三个选项），一个时间范围选择器（如 '1W', '1M', '3M'），以及一个\"刷新数据\"按钮。下方主体是图表区域。\n2. **图表绘制**：使用原生 HTML5 `<canvas>` 绘制 K 线图（包括开、收、高、低）以及下方的成交量 柱状图。X轴代表时间，Y轴代表价格。成交量柱状图需与主图的 X 轴时间刻度对齐。\n3. **模拟数据生成**：在 JavaScript 中实现随机游走算法生成模拟的股票历史数据。当选择不同股票、不同时间范围或点击刷新按钮时，必须生成一组全新的随机数据并重新渲染 Canvas。\n4. **十字准线交互**：监听 Canvas 的 `mousemove` 事件，当鼠标在图表上移动时，绘制横竖交叉的十字准线。同时在图表右上角浮动显示当前悬停位置对应那根 K 线的详细数据（Open, High, Low, Close, Volume）。",
+      "keywords": [
+        "<canvas>",
+        "getContext",
+        "addEventListener",
+        "mousemove",
+        "Math.random",
+        "fillRect",
+        "clearRect"
+      ],
+      "test_cases": [
+        "页面中必须包含一个 <canvas> 元素用于绘制图表。",
+        "控制面板中必须包含一个 <select> 下拉菜单，且内部包含值为 'AAPL', 'GOOGL', 'TSLA' 的 <option>。",
+        "点击 '刷新数据' 按钮后，Canvas 上的 K 线和成交量图表必须根据新生成的随机数据被重新绘制。",
+        "当鼠标在 Canvas 上移动时，必须触发事件并在画布上绘制十字准线（Crosshair）。",
+        "图表下方必须渲染与 K 线对应的成交量柱状图，且与 K 线的 X 轴对齐。"
+      ],
+      "difficulty": "hard"
+    },
+    {
+      "id": "frontcode_complex_22",
+      "type": "complex",
+      "prompt": "实现一个基于 SVG 的无限画布白板应用，支持多节点拓扑连接、拖拽移动以及画布的平移缩放。具体需求如下：\n1. **画布与背景**：页面主体为一个全屏的 `<svg>` 元素。背景需要渲染网格线图案，以体现画布的移动和缩放。\n2. **左侧工具栏**：页面左侧固定一个垂直工具栏，包含三个按钮：\"添加矩形节点\"、\"添加圆形节点\"、\"添加连线\"。\n3. **节点操作**：点击添加节点按钮后，在 SVG 画布中心生成对应的 SVG 图形（`<rect>` 或 `<circle>`），节点内部需要包含一个 `<text>` 标签显示随机生成的文本（如 'Node-1'）。节点必须支持鼠标拖拽自由移动。\n4. **连线操作**：点击 \"添加连线\" 按钮后进入连线模式。在此模式下，依次点击两个不同的节点，即可在两个节点中心之间生成一条贝塞尔曲线（`<path>`）。当拖动节点时，已连接的路径必须跟随节点端点实时更新。\n5. **画布平移与缩放**：在非连线、非拖拽节点的状态下，按住鼠标左键在空白处拖动可以平移整个画布；使用鼠标滚轮可以以光标为中心缩放画布。要求通过修改 SVG 根元素或其内部 `<g>` 容器的 `transform` 属性（`translate` 和 `scale`）来实现。",
+      "keywords": [
+        "<svg>",
+        "createElementNS",
+        "transform",
+        "translate",
+        "scale",
+        "mousedown",
+        "wheel",
+        "getBoundingClientRect",
+        "<path>"
+      ],
+      "test_cases": [
+        "页面中必须包含一个占满主体区域的 <svg> 元素。",
+        "左侧工具栏必须包含 '添加矩形节点'、'添加圆形节点' 和 '添加连线' 三个按钮。",
+        "点击添加节点按钮后，SVG 画布中必须动态生成对应的 <rect> 或 <circle> 元素，且内部包含 <text> 元素。",
+        "鼠标按住节点拖拽时，节点位置必须随之改变，且如果该节点有连线，连线的端点必须实时跟随移动。",
+        "鼠标滚轮滚动时，必须更新 SVG 容器的 transform 属性实现画布缩放；按住鼠标在空白处拖动必须更新 transform 属性实现画布平移。"
+      ],
+      "difficulty": "hard"
     }
   ]
 }

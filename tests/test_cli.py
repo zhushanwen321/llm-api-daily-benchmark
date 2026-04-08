@@ -51,3 +51,40 @@ class TestSchedulerCommands:
         runner = CliRunner()
         result = runner.invoke(cli, ["scheduler", "status"])
         assert result.exit_code == 0
+
+
+class TestProbeCommands:
+    """probe 子命令测试。"""
+
+    def test_probe_run_missing_model(self):
+        """缺少 --model 参数应报错。"""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["probe", "run"])
+        assert result.exit_code != 0
+        assert "Missing option" in result.output or "Error" in result.output
+
+    def test_probe_run_accepts_model(self):
+        """提供 --model 参数时不应报参数校验错误。"""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["probe", "run", "--model", "glm/glm-4.7"])
+        # 可能因缺少 probe tasks 文件而失败，但不应是参数错误
+        assert "Invalid value" not in result.output
+
+    def test_probe_schedule_missing_models(self):
+        """缺少 --models 参数应报错。"""
+        runner = CliRunner()
+        result = runner.invoke(cli, ["probe", "schedule"])
+        assert result.exit_code != 0
+        assert "Missing option" in result.output or "Error" in result.output
+
+    def test_probe_schedule_accepts_models(self):
+        """提供 --models 参数时不应报参数校验错误。"""
+        from unittest.mock import patch
+
+        runner = CliRunner()
+        with patch("benchmark.cli.time.sleep", side_effect=KeyboardInterrupt):
+            result = runner.invoke(
+                cli, ["probe", "schedule", "--models", "glm/glm-4.7,openai/gpt-4o"]
+            )
+        # 不应是参数校验错误
+        assert "Invalid value" not in result.output

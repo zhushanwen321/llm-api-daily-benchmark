@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -131,6 +132,60 @@ class Database:
             )
         """)
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS quality_signals (
+                signal_id TEXT PRIMARY KEY,
+                result_id TEXT NOT NULL REFERENCES eval_results(result_id),
+                format_compliance REAL DEFAULT 0,
+                repetition_ratio REAL DEFAULT 0,
+                garbled_text_ratio REAL DEFAULT 0,
+                refusal_detected INTEGER DEFAULT 0,
+                language_consistency REAL DEFAULT 1.0,
+                output_length_zscore REAL DEFAULT 0,
+                thinking_ratio REAL DEFAULT 0,
+                empty_reasoning INTEGER DEFAULT 0,
+                truncated INTEGER DEFAULT 0,
+                token_efficiency_zscore REAL DEFAULT 0,
+                tps_zscore REAL DEFAULT 0,
+                ttft_zscore REAL DEFAULT 0,
+                answer_entropy REAL DEFAULT 0,
+                raw_output_length INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qs_result_id ON quality_signals(result_id)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qs_created_at ON quality_signals(created_at)")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS stability_reports (
+                report_id TEXT PRIMARY KEY,
+                model TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                overall_status TEXT NOT NULL,
+                anomalies TEXT NOT NULL DEFAULT '[]',
+                change_points TEXT NOT NULL DEFAULT '[]',
+                stat_tests TEXT NOT NULL DEFAULT '[]',
+                summary TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sr_model ON stability_reports(model)")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sr_run_id ON stability_reports(run_id)")
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cluster_reports (
+                report_id TEXT PRIMARY KEY,
+                model TEXT NOT NULL,
+                n_clusters INTEGER NOT NULL,
+                n_noise INTEGER NOT NULL DEFAULT 0,
+                clusters TEXT NOT NULL DEFAULT '[]',
+                suspected_changes TEXT NOT NULL DEFAULT '[]',
+                summary TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cr_model ON cluster_reports(model)")
+
         conn.commit()
 
     def create_run(self, run: EvalRun) -> str:
@@ -228,6 +283,7 @@ class Database:
         self,
         model: Optional[str] = None,
         dimension: Optional[str] = None,
+        run_id: Optional[str] = None,
     ) -> list[dict]:
         """查询评测结果。"""
         conn = self._get_conn()
@@ -246,6 +302,9 @@ class Database:
         if dimension:
             query += " AND e.dimension = ?"
             params.append(dimension)
+        if run_id:
+            query += " AND r.run_id = ?"
+            params.append(run_id)
         query += " ORDER BY r.created_at DESC"
 
         cursor = conn.execute(query, params)
@@ -268,3 +327,233 @@ class Database:
         if row is None:
             return None
         return dict(zip(columns, row))
+
+    # ── quality_signals ──
+
+    def _save_quality_signals(self, signals: dict) -> str:
+        """同步写入一条 quality_signals 记录。"""
+        conn = self._get_conn()
+        signal_id = str(uuid.uuid4())[:12]
+        conn.execute(
+            """INSERT INTO quality_signals
+               (signal_id, result_id, format_compliance, repetition_ratio,
+                garbled_text_ratio, refusal_detected, language_consistency,
+                output_length_zscore, thinking_ratio, empty_reasoning,
+                truncated, token_efficiency_zscore, tps_zscore,
+                ttft_zscore, answer_entropy, raw_output_length)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                signal_id,
+                signals["result_id"],
+                signals.get("format_compliance", 0),
+                signals.get("repetition_ratio", 0),
+                signals.get("garbled_text_ratio", 0),
+                int(signals.get("refusal_detected", 0)),
+                signals.get("language_consistency", 1.0),
+                signals.get("output_length_zscore", 0),
+                signals.get("thinking_ratio", 0),
+                int(signals.get("empty_reasoning", 0)),
+                int(signals.get("truncated", 0)),
+                signals.get("token_efficiency_zscore", 0),
+                signals.get("tps_zscore", 0),
+                signals.get("ttft_zscore", 0),
+                signals.get("answer_entropy", 0),
+                signals.get("raw_output_length", 0),
+            ),
+        )
+        conn.commit()
+        return signal_id
+
+    async def asave_quality_signals(self, signals: dict) -> str:
+        """异步写入 quality_signals 记录。"""
+        return await asyncio.to_thread(self._save_quality_signals, signals)
+
+    # ── stability_reports ──
+
+    def _save_stability_report(self, report: object) -> str:
+        """同步写入 stability_reports 记录。report 需要有 StabilityReport 的字段。"""
+        from benchmark.analysis.models import StabilityReport
+
+        assert isinstance(report, StabilityReport)
+        conn = self._get_conn()
+        report_id = str(uuid.uuid4())[:12]
+        anomalies = json.dumps(
+            [
+                {
+                    "signal_name": a.signal_name,
+                    "current_value": a.current_value,
+                    "baseline_mean": a.baseline_mean,
+                    "baseline_std": a.baseline_std,
+                    "z_score": a.z_score,
+                }
+                for a in report.anomalies
+            ],
+            ensure_ascii=False,
+        )
+        change_points = json.dumps(
+            [
+                {
+                    "signal_name": cp.signal_name,
+                    "detected_at": cp.detected_at.isoformat(),
+                    "direction": cp.direction,
+                    "magnitude": cp.magnitude,
+                }
+                for cp in report.change_points
+            ],
+            ensure_ascii=False,
+        )
+        conn.execute(
+            """INSERT INTO stability_reports
+               (report_id, model, run_id, overall_status,
+                anomalies, change_points, stat_tests, summary)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                report_id,
+                report.model,
+                report.run_id,
+                report.overall_status,
+                anomalies,
+                change_points,
+                json.dumps(report.stat_tests, ensure_ascii=False),
+                report.summary,
+            ),
+        )
+        conn.commit()
+        return report_id
+
+    async def asave_stability_report(self, report: object) -> str:
+        """异步写入 stability_reports 记录。"""
+        return await asyncio.to_thread(self._save_stability_report, report)
+
+    # ── 查询方法 ──
+
+    def _get_quality_signals_for_run(self, run_id: str) -> list[dict]:
+        """同步：通过 eval_results JOIN 获取某个 run 的所有质量信号。"""
+        conn = self._get_conn()
+        cursor = conn.execute(
+            """SELECT qs.*
+               FROM quality_signals qs
+               JOIN eval_results er ON qs.result_id = er.result_id
+               WHERE er.run_id = ?""",
+            (run_id,),
+        )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    async def aget_quality_signals_for_run(self, run_id: str) -> list[dict]:
+        """异步：获取某个 run 的所有质量信号。"""
+        return await asyncio.to_thread(self._get_quality_signals_for_run, run_id)
+
+    def _get_quality_signals_history(self, model: str, days: int = 7) -> list[dict]:
+        """同步：获取某模型最近 N 天的质量信号。"""
+        conn = self._get_conn()
+        cursor = conn.execute(
+            """SELECT qs.*
+               FROM quality_signals qs
+               JOIN eval_results er ON qs.result_id = er.result_id
+               JOIN eval_runs ev ON er.run_id = ev.run_id
+               WHERE ev.model = ?
+                 AND qs.created_at >= datetime('now', ?)
+               ORDER BY qs.created_at DESC""",
+            (model, f"-{days} days"),
+        )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    async def aget_quality_signals_history(
+        self, model: str, days: int = 7
+    ) -> list[dict]:
+        """异步：获取某模型最近 N 天的质量信号。"""
+        return await asyncio.to_thread(
+            self._get_quality_signals_history, model, days
+        )
+
+    def _get_stability_reports(self, model: str | None = None) -> list[dict]:
+        """同步：查询稳定性报告。"""
+        conn = self._get_conn()
+        if model:
+            cursor = conn.execute(
+                """SELECT * FROM stability_reports
+                   WHERE model = ?
+                   ORDER BY created_at DESC""",
+                (model,),
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT * FROM stability_reports ORDER BY created_at DESC"
+            )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    async def aget_stability_reports(
+        self, model: str | None = None
+    ) -> list[dict]:
+        """异步：查询稳定性报告。"""
+        return await asyncio.to_thread(self._get_stability_reports, model)
+
+    # ── cluster_reports ──
+
+    def _save_cluster_report(self, report: object) -> str:
+        """同步写入 cluster_reports 记录。"""
+        from benchmark.analysis.models import ClusterReport
+
+        assert isinstance(report, ClusterReport)
+        conn = self._get_conn()
+        report_id = str(uuid.uuid4())[:12]
+        clusters = json.dumps(
+            [
+                {
+                    "cluster_id": c.cluster_id,
+                    "size": c.size,
+                    "time_range": c.time_range,
+                    "centroid": c.centroid,
+                    "avg_score": c.avg_score,
+                }
+                for c in report.clusters
+            ],
+            ensure_ascii=False,
+        )
+        conn.execute(
+            """INSERT INTO cluster_reports
+               (report_id, model, n_clusters, n_noise,
+                clusters, suspected_changes, summary)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                report_id,
+                report.model,
+                report.n_clusters,
+                report.n_noise,
+                clusters,
+                json.dumps(report.suspected_changes, ensure_ascii=False),
+                report.summary,
+            ),
+        )
+        conn.commit()
+        return report_id
+
+    async def asave_cluster_report(self, report: object) -> str:
+        """异步写入 cluster_reports 记录。"""
+        return await asyncio.to_thread(self._save_cluster_report, report)
+
+    def _get_cluster_reports(self, model: str | None = None) -> list[dict]:
+        """同步：查询聚类报告。"""
+        conn = self._get_conn()
+        if model:
+            cursor = conn.execute(
+                """SELECT * FROM cluster_reports
+                   WHERE model = ?
+                   ORDER BY created_at DESC""",
+                (model,),
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT * FROM cluster_reports ORDER BY created_at DESC"
+            )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    async def aget_cluster_reports(
+        self, model: str | None = None
+    ) -> list[dict]:
+        """异步：查询聚类报告。"""
+        return await asyncio.to_thread(self._get_cluster_reports, model)

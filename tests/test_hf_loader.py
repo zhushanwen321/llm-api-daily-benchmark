@@ -11,6 +11,16 @@ import requests
 from benchmark.adapters.hf_loader import _cache_path, _fetch_all_rows, load_hf_dataset
 
 
+@pytest.fixture(autouse=True)
+def _ensure_online():
+    """确保测试期间离线模式关闭，避免其他测试的副作用。"""
+    old = os.environ.get("HF_DATASETS_OFFLINE")
+    os.environ.pop("HF_DATASETS_OFFLINE", None)
+    yield
+    if old is not None:
+        os.environ["HF_DATASETS_OFFLINE"] = old
+
+
 def _make_rows_response(rows: list[dict], num_total: int, offset: int = 0) -> dict:
     wrapped = [{"row_idx": offset + i, "row": r, "truncated_cells": []} for i, r in enumerate(rows)]
     return {
@@ -76,6 +86,11 @@ class TestLoadHfDataset:
         rows = [{"q": "what?", "a": "42"}]
         resp = _make_rows_response(rows, num_total=1)
         requests_mock.get("https://datasets-server.huggingface.co/rows", json=resp)
+        # config_name=None 时 load_hf_dataset 会先调 _resolve_config
+        requests_mock.get(
+            "https://datasets-server.huggingface.co/configs",
+            json={"configs": [{"config": "default"}]},
+        )
 
         with tempfile.TemporaryDirectory() as tmpdir:
             result = load_hf_dataset("test/repo", "test", tmpdir)
