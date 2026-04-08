@@ -15,6 +15,7 @@ import json
 import math
 import re
 import statistics
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -38,9 +39,9 @@ _EN_WORD_RE = re.compile(r"[a-zA-Z]+")
 
 # CJK 字符范围
 _CJK_RANGES = (
-    (0x4E00, 0x9FFF),    # CJK Unified Ideographs
-    (0x3400, 0x4DBF),    # CJK Unified Ideographs Extension A
-    (0xF900, 0xFAFF),    # CJK Compatibility Ideographs
+    (0x4E00, 0x9FFF),  # CJK Unified Ideographs
+    (0x3400, 0x4DBF),  # CJK Unified Ideographs Extension A
+    (0xF900, 0xFAFF),  # CJK Compatibility Ideographs
 )
 
 
@@ -55,6 +56,12 @@ class QualitySignalCollector:
     def __init__(self, db: Database, model: str) -> None:
         self._db = db
         self._model = model
+        self._cache: dict = {}
+
+    def _get_cache_key(self, query_key: str, filters: dict[str, str]) -> str:
+        dimension = filters.get("dimension", "")
+        task_id = filters.get("task_id", "")
+        return f"{self._model}:{query_key}:{dimension}:{task_id}"
 
     # ── 公共 API ──
 
@@ -75,20 +82,28 @@ class QualitySignalCollector:
             "garbled_text_ratio": self._calc_garbled(raw_output),
             "refusal_detected": self._check_refusal(raw_output),
             "language_consistency": self._calc_language_consistency(raw_output),
-            "output_length_zscore": await self._calc_length_zscore(raw_output, dimension, task),
+            "output_length_zscore": await self._calc_length_zscore(
+                raw_output, dimension, task
+            ),
             "thinking_ratio": self._calc_thinking_ratio(gen_metrics),
-            "empty_reasoning": self._check_empty_reasoning(reasoning_content, gen_metrics),
+            "empty_reasoning": self._check_empty_reasoning(
+                reasoning_content, gen_metrics
+            ),
             "truncated": 1 if finish_reason == "length" else 0,
-            "token_efficiency_zscore": await self._calc_token_efficiency_zscore(gen_metrics, task),
+            "token_efficiency_zscore": await self._calc_token_efficiency_zscore(
+                gen_metrics, task
+            ),
             "tps_zscore": await self._calc_tps_zscore(gen_metrics),
             "ttft_zscore": await self._calc_ttft_zscore(gen_metrics),
             "answer_entropy": 0.0,  # 由 StabilityAnalyzer 批次级计算
             "raw_output_length": len(raw_output),
         }
-        await self._db.asave_quality_signals({
-            "result_id": result_id,
-            **signals,
-        })
+        await self._db.asave_quality_signals(
+            {
+                "result_id": result_id,
+                **signals,
+            }
+        )
         return signals
 
     # ── 信号 1: format_compliance ──
@@ -297,10 +312,11 @@ class QualitySignalCollector:
         value_expr: str,
         days: int = 7,
     ) -> tuple[float, float]:
-        """查询历史均值和标准差，返回 (mean, std)。
+        """查询历史均值和标准差，返回 (mean, std)。"""
+        cache_key = self._get_cache_key(query_key, filters)
+        if cache_key in self._cache:
+            return self._cache[cache_key]
 
-        通过 Database 的同步连接查询，避免引入 aiosqlite 依赖。
-        """
         sql = f"""
             SELECT {value_expr} AS val
             FROM api_call_metrics acm
@@ -320,6 +336,7 @@ class QualitySignalCollector:
             params.append(filters["task_id"])
 
         import asyncio
+
         rows = await asyncio.to_thread(self._query_history, sql, params)
 
         if len(rows) < 2:
@@ -331,9 +348,10 @@ class QualitySignalCollector:
 
         mean = statistics.mean(values)
         std = statistics.pstdev(values)
-        if std == 0:
-            return (mean, 0.0)
-        return (mean, std)
+        result = (mean, 0.0) if std == 0 else (mean, std)
+
+        self._cache[cache_key] = result
+        return result
 
     def _query_history(self, sql: str, params: list) -> list[dict]:
         """同步执行历史查询（在 asyncio.to_thread 中运行）。"""
