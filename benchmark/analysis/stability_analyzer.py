@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import math
 import statistics
 from collections import Counter
@@ -27,8 +28,8 @@ if TYPE_CHECKING:
 # z-score 异常阈值
 _ZSCORE_THRESHOLD = 2.0
 
-# Bonferroni 校正后的 alpha（14 个信号：13 quality_signals + score）
-_BONFERRONI_ALPHA = 0.05 / 14
+# Bonferroni 校正后的 alpha（10 个检验：9 数值信号 + score）
+_BONFERRONI_ALPHA = 0.05 / 10
 
 # 参与 CUSUM 检测的信号名
 _CUSUM_SIGNALS = ("tps_zscore", "ttft_zscore", "score", "thinking_ratio")
@@ -61,12 +62,16 @@ class StabilityAnalyzer:
         # 1. 加载当前 run 的 quality_signals
         current_signals = await self._db.aget_quality_signals_for_run(run_id)
         # 2. 加载当前 run 的 eval_results（获取 final_score）
-        current_scores = self._get_current_scores(run_id)
+        current_scores = await asyncio.to_thread(
+            self._get_current_scores, run_id
+        )
         # 3. 加载历史基线
         history_signals = await self._db.aget_quality_signals_history(
             model, self._history_days
         )
-        history_scores = self._get_history_scores(model)
+        history_scores = await asyncio.to_thread(
+            self._get_history_scores, model, dimension
+        )
 
         # 4. z-score 异常检测
         anomalies = self._detect_anomalies(current_signals, history_signals)
@@ -76,7 +81,7 @@ class StabilityAnalyzer:
 
         # 6. CUSUM 变化点检测
         change_points = self._run_cusum_detection(
-            current_signals, history_signals, history_scores
+            current_signals, history_signals, history_scores, current_scores
         )
 
         # 7. Welch's t-test
@@ -119,7 +124,7 @@ class StabilityAnalyzer:
         )
         return [row[0] for row in cursor.fetchall() if row[0] is not None]
 
-    def _get_history_scores(self, model: str) -> list[dict]:
+    def _get_history_scores(self, model: str, dimension: str) -> list[dict]:
         """获取历史 final_score，包含 run_id、final_score、created_at。"""
         conn = self._db._get_conn()
         cutoff = f"-{self._history_days} days"
@@ -128,10 +133,11 @@ class StabilityAnalyzer:
                FROM eval_results er
                JOIN eval_runs ev ON er.run_id = ev.run_id
                WHERE ev.model = ?
+                 AND ev.dimension = ?
                  AND ev.status = 'completed'
                  AND er.created_at >= datetime('now', ?)
                ORDER BY er.created_at ASC""",
-            (model, cutoff),
+            (model, dimension, cutoff),
         )
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
@@ -188,29 +194,55 @@ class StabilityAnalyzer:
         current_signals: list[dict],
         history_signals: list[dict],
         history_scores: list[dict],
+        current_scores: list[float],
     ) -> list[ChangePoint]:
         """对 TPS、TTFT、score、thinking_ratio 做 CUSUM 变化点检测。"""
         change_points: list[ChangePoint] = []
 
-        # quality_signals 中的信号：使用历史 + 当前合并的时序
+        # quality_signals 中的信号：使用历史基线 + 当前 run 的时序
         for signal_name in ("tps_zscore", "ttft_zscore", "thinking_ratio"):
-            # 构建时序：历史 + 当前
             values, timestamps = self._build_timeseries(
                 signal_name, history_signals, current_signals
             )
-            if values:
-                change_points.extend(
-                    self._cusum_detect(values, signal_name, timestamps)
+            if len(values) < 5:
+                continue
+            # 仅用历史基线计算 mean/std，避免当前异常值拉偏
+            hist_vals = [
+                s[signal_name]
+                for s in history_signals
+                if s.get(signal_name) is not None
+            ]
+            if len(hist_vals) < 2:
+                continue
+            baseline_mean = statistics.mean(hist_vals)
+            baseline_std = statistics.pstdev(hist_vals)
+            if baseline_std == 0:
+                continue
+            change_points.extend(
+                self._cusum_detect(
+                    values, signal_name, timestamps,
+                    baseline_mean=baseline_mean, baseline_std=baseline_std,
                 )
+            )
 
         # score 时序
         score_values, score_timestamps = self._build_score_timeseries(
-            history_scores, current_signals
+            history_scores, current_scores
         )
-        if score_values:
-            change_points.extend(
-                self._cusum_detect(score_values, "score", score_timestamps)
-            )
+        if len(score_values) < 5:
+            pass
+        else:
+            hist_score_vals = [h["final_score"] for h in history_scores if h.get("final_score") is not None]
+            if len(hist_score_vals) >= 2:
+                score_mean = statistics.mean(hist_score_vals)
+                score_std = statistics.pstdev(hist_score_vals)
+                if score_std > 0:
+                    change_points.extend(
+                        self._cusum_detect(
+                            score_values, "score", score_timestamps,
+                            baseline_mean=score_mean, baseline_std=score_std,
+                        )
+                    )
 
         return change_points
 
@@ -248,7 +280,7 @@ class StabilityAnalyzer:
     def _build_score_timeseries(
         self,
         history_scores: list[dict],
-        current_signals: list[dict],
+        current_scores: list[float],
     ) -> tuple[list[float], list[datetime]]:
         """构建 score 时序。"""
         values: list[float] = []
@@ -261,6 +293,13 @@ class StabilityAnalyzer:
                 values.append(float(val))
                 timestamps.append(self._parse_timestamp(ts))
 
+        # 追加当前 run 的分数
+        if current_scores:
+            now = datetime.now()
+            for s in current_scores:
+                values.append(float(s))
+                timestamps.append(now)
+
         return values, timestamps
 
     def _cusum_detect(
@@ -268,13 +307,15 @@ class StabilityAnalyzer:
         values: list[float],
         signal_name: str,
         timestamps: list[datetime],
+        baseline_mean: float | None = None,
+        baseline_std: float | None = None,
     ) -> list[ChangePoint]:
         """CUSUM 变化点检测。"""
         if len(values) < 5:
             return []
 
-        mean = statistics.mean(values)
-        std = statistics.pstdev(values)
+        mean = baseline_mean if baseline_mean is not None else statistics.mean(values)
+        std = baseline_std if baseline_std is not None else statistics.pstdev(values)
         if std == 0:
             return []
 
