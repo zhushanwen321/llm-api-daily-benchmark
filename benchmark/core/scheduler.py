@@ -15,7 +15,7 @@ class BenchmarkScheduler:
     """定时评测调度器。
 
     从环境变量读取配置，使用 APScheduler 按 cron 表达式定时触发评测。
-    调度器在后台线程中运行，主进程（如 Streamlit）不受阻塞。
+    probe 已集成到 DIMENSION_REGISTRY，--dimension all 时自动包含。
     """
 
     def __init__(self) -> None:
@@ -77,7 +77,7 @@ class BenchmarkScheduler:
             logger.info("调度器已停止")
 
     def _run_scheduled_evaluation(self) -> None:
-        """调度触发时执行的全量评测，完成后自动运行 probe 监控。"""
+        """调度触发时执行的全量评测。"""
         logger.info("定时评测触发: models=%s, dimensions=%s", self.models, self.dimensions)
         try:
             from benchmark.cli import _run_multi_evaluation
@@ -91,24 +91,3 @@ class BenchmarkScheduler:
             logger.info("定时评测完成")
         except Exception:
             logger.exception("定时评测执行失败")
-
-        # evaluate 完成后自动运行 probe 监控
-        self._run_scheduled_probe()
-
-    def _run_scheduled_probe(self) -> None:
-        """evaluate 完成后自动触发 probe，采集质量信号和指纹。"""
-        logger.info("Probe 监控触发: models=%s", self.models)
-        try:
-            from benchmark.cli import _run_probe
-
-            async def _run_all_probes() -> None:
-                for model in self.models:
-                    try:
-                        await _run_probe(model, samples=20, debug=False)
-                    except Exception:
-                        logger.exception("Probe 执行失败: model=%s", model)
-
-            asyncio.run(_run_all_probes())
-            logger.info("Probe 监控完成")
-        except Exception:
-            logger.exception("Probe 监控执行失败")
