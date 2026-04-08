@@ -6,11 +6,9 @@ from benchmark.scorers.backend.performance import PerformanceScorer
 from benchmark.scorers.backend.robustness import RobustnessScorer
 from benchmark.scorers.backend.security import SecurityScorer
 from benchmark.scorers.backend.test_coverage import TestCoverageScorer
-from benchmark.scorers.composite import CompositeScorer
 
-
-def create_backend_composite() -> CompositeScorer:
-    return CompositeScorer([
+def create_backend_composite() -> list[tuple[float, object]]:
+    return [
         (0.40, TestCoverageScorer()),
         (0.25, PerformanceScorer()),
         (0.15, CodeStyleScorer()),
@@ -18,7 +16,7 @@ def create_backend_composite() -> CompositeScorer:
         (0.05, ArchitectureScorer()),
         (0.03, SecurityScorer()),
         (0.02, ExtensibilityScorer()),
-    ])
+    ]
 
 
 __all__ = [

@@ -279,9 +279,13 @@ async def _run_evaluation(
     evaluator = evaluator_cls()
     llm = LLMEvalAdapter(model=model)
 
-    # reasoning 需要 llm 实例传给 LLM Judge
+    # judge 使用独立的 LLM，避免被测模型和 judge 是同一个导致偏差
+    judge_model = os.getenv("JUDGE_MODEL", "opencode-go-gk/kimi-k2.5")
+    judge_llm = LLMEvalAdapter(model=judge_model)
+
+    # reasoning 需要 judge_llm 实例传给 LLM Judge
     if dimension == "reasoning":
-        scorer = CompositeScorer(scorer_factory(llm=llm))
+        scorer = CompositeScorer(scorer_factory(llm=judge_llm))
     else:
         scorer = CompositeScorer(scorer_factory())
 

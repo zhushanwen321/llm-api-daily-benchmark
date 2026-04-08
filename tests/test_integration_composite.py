@@ -29,8 +29,9 @@ def _make_sysarch_ctx(answer: str = "B", expected: str = "B", reasoning: str = "
 class TestBackendCompositeIntegration:
     def test_creates_backend_composite(self):
         from benchmark.scorers.backend import create_backend_composite
-        scorer = create_backend_composite()
-        assert isinstance(scorer, CompositeScorer)
+        scorers = create_backend_composite()
+        assert isinstance(scorers, list)
+        scorer = CompositeScorer(scorers)
         code = "def add(a, b):\n    return a + b\n"
         test = """
 import unittest
@@ -47,7 +48,7 @@ if __name__ == "__main__":
 
     def test_backend_passed_threshold(self):
         from benchmark.scorers.backend import create_backend_composite
-        scorer = create_backend_composite()
+        scorer = CompositeScorer(create_backend_composite())
         code = "def add(a, b):\n    return a + b\n"
         test = """
 import unittest
@@ -64,8 +65,9 @@ if __name__ == "__main__":
 class TestSysArchCompositeIntegration:
     def test_creates_sysarch_composite(self):
         from benchmark.scorers.system_architecture import create_sysarch_composite
-        scorer = create_sysarch_composite()
-        assert isinstance(scorer, CompositeScorer)
+        scorers = create_sysarch_composite()
+        assert isinstance(scorers, list)
+        scorer = CompositeScorer(scorers)
         reasoning = (
             "Let me analyze each option:\n"
             "A is incorrect because it violates the principle.\n"
@@ -79,7 +81,7 @@ class TestSysArchCompositeIntegration:
 
     def test_sysarch_correct_answer_with_reasoning(self):
         from benchmark.scorers.system_architecture import create_sysarch_composite
-        scorer = create_sysarch_composite()
+        scorer = CompositeScorer(create_sysarch_composite())
         reasoning = (
             "Let me analyze each option:\n"
             "A is incorrect because it violates the principle.\n"
