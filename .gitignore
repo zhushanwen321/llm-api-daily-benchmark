@@ -16,7 +16,14 @@ benchmark/data/*.db
 benchmark/datasets/gsm8k/
 benchmark/datasets/bigcodebench/
 benchmark/datasets/mmlu/
+benchmark/datasets/math/
+benchmark/datasets/mmlu_pro/
+benchmark/datasets/.download-complete
 benchmark/logs/*.log
+
+# 运行时生成
+fingerprint_db/
+tracers/
 
 # IDE
 .idea/
