@@ -145,6 +145,7 @@ async def _evaluate_task(
     total: int,
     debug: bool,
     system_message: str | None = None,
+    dimension: str = "",
 ) -> dict[str, Any]:
     """单个 task 的异步评测协程。"""
     try:
@@ -211,6 +212,22 @@ async def _evaluate_task(
         )
         t_after_db = time.monotonic()
         db_duration = t_after_db - t_before_db
+
+        # 阶段4: 质量信号采集
+        try:
+            from benchmark.analysis.quality_signals import QualitySignalCollector
+            qsc = QualitySignalCollector(db=db, model=model)
+            await qsc.collect_and_save(
+                result_id=result_id,
+                raw_output=ctx.raw_output,
+                reasoning_content=ctx.reasoning_content,
+                gen_metrics=gm,
+                finish_reason=gm.get("finish_reason", ""),
+                task=task,
+                dimension=dimension,
+            )
+        except Exception as exc:
+            logger.warning(f"质量信号采集失败: {exc}")
 
         # 有效执行时间 = 各阶段实际耗时之和，不含 semaphore 排队等待
         effective_total = api_duration + score_duration + db_duration
@@ -300,7 +317,7 @@ async def _run_evaluation(
         db.create_run(run)
 
         coros = [
-            _evaluate_task(i, task, model, llm, scorer, evaluator, db, run_id, len(tasks), debug, system_message=_THINKING_SYSTEM_MESSAGE)
+            _evaluate_task(i, task, model, llm, scorer, evaluator, db, run_id, len(tasks), debug, system_message=_THINKING_SYSTEM_MESSAGE, dimension=dimension)
             for i, task in enumerate(tasks)
         ]
 
@@ -320,6 +337,23 @@ async def _run_evaluation(
                 total_score += r["score"]
                 if r["passed"]:
                     passed_count += 1
+
+        # 稳定性分析
+        try:
+            from benchmark.analysis.stability_analyzer import StabilityAnalyzer
+            analyzer = StabilityAnalyzer(db=db)
+            report = await analyzer.run(model=model, run_id=run_id, dimension=dimension)
+            status_color = {
+                "stable": "green",
+                "suspicious": "yellow",
+                "degraded": "red",
+            }.get(report.overall_status, "white")
+            console.print(
+                f"  Stability: [{status_color}]{report.overall_status}[/{status_color}] "
+                f"{report.summary}"
+            )
+        except Exception as exc:
+            logger.warning(f"稳定性分析失败: {exc}")
 
         if failed_count == 0:
             db.finish_run(run_id, "completed")
