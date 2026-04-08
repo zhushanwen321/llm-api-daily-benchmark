@@ -650,6 +650,76 @@ def schedule(ctx: click.Context, models: str, interval_minutes: int) -> None:
         console.print("[yellow]Probe 调度已停止[/yellow]")
 
 
+@probe.command("analyze")
+@click.option("--model", default=None, help="要分析的模型（不指定则分析全部）")
+@click.option("--classify", is_flag=True, default=False, help="同时运行跨模型分类")
+def analyze(model: str | None, classify: bool) -> None:
+    """聚类分析：检测模型身份变化。"""
+    from benchmark.analysis.cluster_analyzer import (
+        FingerprintClusterAnalyzer,
+        ModelClassifier,
+    )
+
+    _setup_proxy()
+    analyzer = FingerprintClusterAnalyzer()
+
+    if model:
+        models = [model]
+    else:
+        # 扫描所有模型
+        fp_dir = Path("fingerprint_db")
+        if not fp_dir.exists():
+            console.print("[yellow]No fingerprint data found.[/yellow]")
+            return
+        models = sorted(
+            d.name.replace("__", "/")
+            for d in fp_dir.iterdir()
+            if d.is_dir() and not d.name.startswith(".")
+        )
+
+    for m in models:
+        console.print(f"\n[bold]Model: {m}[/bold]")
+        report = analyzer.analyze(m)
+
+        if report.n_clusters == 0:
+            console.print(f"  {report.summary}")
+            continue
+
+        c_color = "red" if report.n_clusters > 1 else "green"
+        console.print(
+            f"  Clusters: [{c_color}]{report.n_clusters}[/{c_color}]  "
+            f"Noise: {report.n_noise}  {report.summary}"
+        )
+        for c in report.clusters:
+            console.print(
+                f"    Cluster {c.cluster_id}: {c.size} samples, "
+                f"avg_score={c.avg_score:.1f}, "
+                f"{c.time_range[0][:16]} ~ {c.time_range[1][:16]}"
+            )
+        if report.suspected_changes:
+            console.print("  [bold red]Suspected model changes:[/bold red]")
+            for change in report.suspected_changes:
+                console.print(
+                    f"    {change['at'][:19]}: "
+                    f"cluster {change['from_cluster']} → {change['to_cluster']} "
+                    f"(similarity={change['cosine_similarity']:.4f})"
+                )
+
+    if classify and len(models) >= 2:
+        console.print("\n[bold]Cross-model classification:[/bold]")
+        clf = ModelClassifier()
+        train_report = clf.train()
+        if train_report["status"] != "trained":
+            console.print(f"  {train_report.get('message', 'Training failed')}")
+            return
+
+        console.print(f"  Trained on {train_report['total_samples']} samples")
+        cv = clf.cross_validate()
+        console.print(f"  LOO accuracy: {cv['accuracy']:.1%}")
+        for name, acc in cv.get("per_model", {}).items():
+            console.print(f"    {name}: {acc:.1%}")
+
+
 async def _run_probe(model: str, samples: int, debug: bool) -> None:
     """Probe 运行主流程。"""
     from benchmark.adapters.probe_adapter import ProbeAdapter
@@ -759,6 +829,33 @@ async def _run_probe(model: str, samples: int, debug: bool) -> None:
             )
         except Exception as exc:
             logger.warning(f"稳定性分析失败: {exc}")
+
+        # 聚类分析（指纹数 >= 5 时执行）
+        try:
+            from benchmark.analysis.cluster_analyzer import FingerprintClusterAnalyzer
+
+            cluster_analyzer = FingerprintClusterAnalyzer()
+            cluster_report = cluster_analyzer.analyze(model)
+
+            if cluster_report.n_clusters > 0:
+                c_color = (
+                    "red" if cluster_report.n_clusters > 1 else "green"
+                )
+                console.print(
+                    f"  Cluster: [{c_color}]{cluster_report.n_clusters} clusters"
+                    f"[/{c_color}] {cluster_report.summary}"
+                )
+                if cluster_report.suspected_changes:
+                    for change in cluster_report.suspected_changes:
+                        console.print(
+                            f"    Change at {change['at']}: "
+                            f"cluster {change['from_cluster']} → {change['to_cluster']} "
+                            f"(similarity={change['cosine_similarity']:.4f})"
+                        )
+                # 保存到数据库
+                await db.asave_cluster_report(cluster_report)
+        except Exception as exc:
+            logger.warning(f"聚类分析失败: {exc}")
 
     except Exception:
         console.print("[red]Probe failed![/red]")

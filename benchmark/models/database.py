@@ -172,6 +172,20 @@ class Database:
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sr_model ON stability_reports(model)")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_sr_run_id ON stability_reports(run_id)")
 
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cluster_reports (
+                report_id TEXT PRIMARY KEY,
+                model TEXT NOT NULL,
+                n_clusters INTEGER NOT NULL,
+                n_noise INTEGER NOT NULL DEFAULT 0,
+                clusters TEXT NOT NULL DEFAULT '[]',
+                suspected_changes TEXT NOT NULL DEFAULT '[]',
+                summary TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cr_model ON cluster_reports(model)")
+
         conn.commit()
 
     def create_run(self, run: EvalRun) -> str:
@@ -476,3 +490,70 @@ class Database:
     ) -> list[dict]:
         """异步：查询稳定性报告。"""
         return await asyncio.to_thread(self._get_stability_reports, model)
+
+    # ── cluster_reports ──
+
+    def _save_cluster_report(self, report: object) -> str:
+        """同步写入 cluster_reports 记录。"""
+        from benchmark.analysis.models import ClusterReport
+
+        assert isinstance(report, ClusterReport)
+        conn = self._get_conn()
+        report_id = str(uuid.uuid4())[:12]
+        clusters = json.dumps(
+            [
+                {
+                    "cluster_id": c.cluster_id,
+                    "size": c.size,
+                    "time_range": c.time_range,
+                    "centroid": c.centroid,
+                    "avg_score": c.avg_score,
+                }
+                for c in report.clusters
+            ],
+            ensure_ascii=False,
+        )
+        conn.execute(
+            """INSERT INTO cluster_reports
+               (report_id, model, n_clusters, n_noise,
+                clusters, suspected_changes, summary)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                report_id,
+                report.model,
+                report.n_clusters,
+                report.n_noise,
+                clusters,
+                json.dumps(report.suspected_changes, ensure_ascii=False),
+                report.summary,
+            ),
+        )
+        conn.commit()
+        return report_id
+
+    async def asave_cluster_report(self, report: object) -> str:
+        """异步写入 cluster_reports 记录。"""
+        return await asyncio.to_thread(self._save_cluster_report, report)
+
+    def _get_cluster_reports(self, model: str | None = None) -> list[dict]:
+        """同步：查询聚类报告。"""
+        conn = self._get_conn()
+        if model:
+            cursor = conn.execute(
+                """SELECT * FROM cluster_reports
+                   WHERE model = ?
+                   ORDER BY created_at DESC""",
+                (model,),
+            )
+        else:
+            cursor = conn.execute(
+                "SELECT * FROM cluster_reports ORDER BY created_at DESC"
+            )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    async def aget_cluster_reports(
+        self, model: str | None = None
+    ) -> list[dict]:
+        """异步：查询聚类报告。"""
+        return await asyncio.to_thread(self._get_cluster_reports, model)

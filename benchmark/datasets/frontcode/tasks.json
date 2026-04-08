@@ -11,7 +11,15 @@
         "article",
         "h1",
         "footer"
-      ]
+      ],
+      "test_cases": [
+        "页面中存在 <header> 标签",
+        "页面中存在 <nav> 标签",
+        "页面中存在 <main> 标签",
+        "页面中存在 <article> 标签",
+        "页面中存在 <footer> 标签"
+      ],
+      "difficulty": "easy"
     },
     {
       "id": "frontcode_css_1",
@@ -26,7 +34,15 @@
         "flex",
         "justify-content",
         "align-items"
-      ]
+      ],
+      "test_cases": [
+        "卡片元素的 display 属性为 flex",
+        "卡片元素具有 border-radius 且值包含 8px",
+        "卡片元素具有 padding 且值包含 20px",
+        "卡片元素具有 box-shadow 属性",
+        "flex 容器使用了 justify-content: center 或 align-items: center"
+      ],
+      "difficulty": "easy"
     },
     {
       "id": "frontcode_js_1",
@@ -38,7 +54,14 @@
         "clearTimeout",
         "return",
         "arguments"
-      ]
+      ],
+      "test_cases": [
+        "代码中定义了一个名为 debounce 的函数",
+        "debounce 函数返回一个新的函数",
+        "返回的函数内部使用了 setTimeout 和 clearTimeout",
+        "在 delay 时间内多次调用返回的函数，原函数最多执行一次"
+      ],
+      "difficulty": "medium"
     },
     {
       "id": "frontcode_react_1",
@@ -51,7 +74,15 @@
         "onClick",
         "children",
         "variant"
-      ]
+      ],
+      "test_cases": [
+        "代码中定义了一个名为 Button 的函数组件",
+        "Button 组件接受 children 属性并渲染它",
+        "Button 组件接受 onClick 属性并绑定到按钮的点击事件",
+        "Button 组件接受 variant 属性，根据 variant 值应用不同的样式类",
+        "variant='primary' 和 variant='secondary' 时按钮的样式不同"
+      ],
+      "difficulty": "easy"
     },
     {
       "id": "frontcode_complex_1",
@@ -65,7 +96,15 @@
         "onClick",
         "checkbox",
         "input"
-      ]
+      ],
+      "test_cases": [
+        "页面中包含一个 input 输入框用于输入任务",
+        "页面中包含一个添加按钮或支持回车添加任务",
+        "列表中每项旁边有删除按钮",
+        "列表中每项有 checkbox 用于标记完成状态",
+        "点击删除按钮后对应项从列表中移除"
+      ],
+      "difficulty": "medium"
     },
     {
       "id": "frontcode_html_6",

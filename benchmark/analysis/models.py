@@ -40,3 +40,27 @@ class StabilityReport:
     stat_tests: list[dict] = field(default_factory=list)
     summary: str = ""
     created_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class ClusterInfo:
+    """单个聚类簇的信息。"""
+
+    cluster_id: int
+    size: int
+    time_range: tuple[str, str]  # (最早时间戳, 最晚时间戳)
+    centroid: list[float]
+    avg_score: float
+
+
+@dataclass
+class ClusterReport:
+    """聚类分析报告。"""
+
+    model: str
+    n_clusters: int
+    n_noise: int
+    clusters: list[ClusterInfo] = field(default_factory=list)
+    suspected_changes: list[dict] = field(default_factory=list)
+    summary: str = ""
+    created_at: datetime = field(default_factory=datetime.now)
