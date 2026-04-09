@@ -1,4 +1,6 @@
 # tests/test_mmlu_adapter.py
+"""MMLU adapter tests - deprecated with system-architecture dimension."""
+
 import json
 import os
 import tempfile
@@ -10,7 +12,6 @@ from benchmark.adapters.hf_loader import _cache_path
 
 
 def _write_cache(tmpdir: str, config: str, rows: list[dict]) -> None:
-    """写入 mock HF 缓存文件。"""
     cache_file = _cache_path(tmpdir, "cais/mmlu", config, "test")
     os.makedirs(os.path.dirname(cache_file), exist_ok=True)
     with open(cache_file, "w") as f:
@@ -28,8 +29,8 @@ def _make_rows(n: int) -> list[dict]:
     ]
 
 
+@pytest.mark.skip(reason="system-architecture dimension removed")
 def test_load_returns_tasks():
-    """加载应返回题目任务."""
     with tempfile.TemporaryDirectory() as tmpdir:
         _write_cache(tmpdir, "college_computer_science", _make_rows(3))
         _write_cache(tmpdir, "abstract_algebra", _make_rows(2))
@@ -38,8 +39,8 @@ def test_load_returns_tasks():
         assert len(tasks) == 5
 
 
+@pytest.mark.skip(reason="system-architecture dimension removed")
 def test_all_tasks_have_required_fields():
-    """所有任务应包含必需字段."""
     with tempfile.TemporaryDirectory() as tmpdir:
         _write_cache(tmpdir, "college_computer_science", _make_rows(3))
         _write_cache(tmpdir, "abstract_algebra", _make_rows(2))
@@ -53,8 +54,8 @@ def test_all_tasks_have_required_fields():
             assert task.expected_output
 
 
+@pytest.mark.skip(reason="system-architecture dimension removed")
 def test_validate_valid_task():
-    """验证有效任务应返回True."""
     adapter = MMLUAdapter(subjects=["college_computer_science", "abstract_algebra"])
     task = TaskDefinition(
         task_id="mmlu_test_1",
@@ -62,12 +63,12 @@ def test_validate_valid_task():
         dataset="mmlu",
         prompt="Test question",
         expected_output="A",
-        metadata={}
+        metadata={},
     )
     assert adapter.validate(task) is True
 
 
+@pytest.mark.skip(reason="system-architecture dimension removed")
 def test_get_dimension():
-    """get_dimension应返回system-architecture."""
     adapter = MMLUAdapter(subjects=["college_computer_science", "abstract_algebra"])
     assert adapter.get_dimension() == "system-architecture"

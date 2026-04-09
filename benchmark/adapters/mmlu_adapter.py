@@ -1,4 +1,9 @@
-"""MMLU 数据集适配器。加载 computer_science 和 abstract_algebra 学科."""
+"""MMLU 数据集适配器。加载 computer_science 和 abstract_algebra 学科.
+
+.. deprecated::
+    system-architecture 维度已被移除，此适配器不再用于主动评测。
+    保留此文件用于历史数据兼容。
+"""
 
 from __future__ import annotations
 
@@ -46,7 +51,10 @@ class MMLUAdapter(DatasetAdapter):
             # 平均分配，多余给第一个学科
             base_count = 5 // num_subjects
             remainder = 5 % num_subjects
-            counts = {s: base_count + (1 if i == 0 else 0) for i, s in enumerate(self.subjects)}
+            counts = {
+                s: base_count + (1 if i == 0 else 0)
+                for i, s in enumerate(self.subjects)
+            }
 
         for subject in self.subjects:
             count = counts.get(subject, 1)
@@ -82,9 +90,13 @@ class MMLUAdapter(DatasetAdapter):
 
                 # 构造题目文本
                 if choices:
-                    choices_text = "\n".join([f"{chr(65+i)}. {choice}" for i, choice in enumerate(choices)])
+                    choices_text = "\n".join(
+                        [f"{chr(65 + i)}. {choice}" for i, choice in enumerate(choices)]
+                    )
                     prompt_text = f"{question}\n\n{choices_text}\n\nAnswer with the letter (A, B, C, D)."
-                    expected_answer = chr(65 + answer_idx)  # 索引转字母 (0->A, 1->B, etc.)
+                    expected_answer = chr(
+                        65 + answer_idx
+                    )  # 索引转字母 (0->A, 1->B, etc.)
                 else:
                     prompt_text = question
                     expected_answer = str(answer_idx)
@@ -99,8 +111,8 @@ class MMLUAdapter(DatasetAdapter):
                         "subject": subject,
                         "source": "cais/mmlu",
                         "choices": choices,
-                        "answer_idx": answer_idx
-                    }
+                        "answer_idx": answer_idx,
+                    },
                 )
                 all_tasks.append(task)
 
@@ -109,10 +121,10 @@ class MMLUAdapter(DatasetAdapter):
     def validate(self, task: TaskDefinition) -> bool:
         """验证任务格式."""
         return bool(
-            task.task_id and
-            task.prompt and
-            task.expected_output and
-            task.dimension == "system-architecture"
+            task.task_id
+            and task.prompt
+            and task.expected_output
+            and task.dimension == "system-architecture"
         )
 
     def get_dimension(self) -> str:

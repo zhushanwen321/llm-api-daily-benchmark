@@ -1,25 +1,40 @@
 """集成测试: 验证 CompositeScorer 与 DIMENSION_REGISTRY 的配合。"""
+
+import pytest
+
 from benchmark.models.schemas import ScoringContext, TaskDefinition
 from benchmark.scorers.composite import CompositeScorer
 
 
 def _make_backend_ctx(code: str, test: str = "", canonical: str = "") -> ScoringContext:
     return ScoringContext(
-        model_answer=code, raw_output=code, expected="",
+        model_answer=code,
+        raw_output=code,
+        expected="",
         task=TaskDefinition(
-            task_id="test", dimension="backend-dev",
-            dataset="bigcodebench", prompt="test", expected_output="",
+            task_id="test",
+            dimension="backend-dev",
+            dataset="bigcodebench",
+            prompt="test",
+            expected_output="",
             metadata={"test": test, "entry_point": "", "canonical_solution": canonical},
         ),
     )
 
 
-def _make_sysarch_ctx(answer: str = "B", expected: str = "B", reasoning: str = "") -> ScoringContext:
+def _make_sysarch_ctx(
+    answer: str = "B", expected: str = "B", reasoning: str = ""
+) -> ScoringContext:
     return ScoringContext(
-        model_answer=answer, raw_output=answer, expected=expected,
+        model_answer=answer,
+        raw_output=answer,
+        expected=expected,
         task=TaskDefinition(
-            task_id="test", dimension="system-architecture",
-            dataset="mmlu-pro", prompt="test", expected_output=expected,
+            task_id="test",
+            dimension="system-architecture",
+            dataset="mmlu-pro",
+            prompt="test",
+            expected_output=expected,
             metadata={"category": "computer science", "num_options": 4},
         ),
         reasoning_content=reasoning,
@@ -29,6 +44,7 @@ def _make_sysarch_ctx(answer: str = "B", expected: str = "B", reasoning: str = "
 class TestBackendCompositeIntegration:
     def test_creates_backend_composite(self):
         from benchmark.scorers.backend import create_backend_composite
+
         scorers = create_backend_composite()
         assert isinstance(scorers, list)
         scorer = CompositeScorer(scorers)
@@ -48,6 +64,7 @@ if __name__ == "__main__":
 
     def test_backend_passed_threshold(self):
         from benchmark.scorers.backend import create_backend_composite
+
         scorer = CompositeScorer(create_backend_composite())
         code = "def add(a, b):\n    return a + b\n"
         test = """
@@ -63,8 +80,11 @@ if __name__ == "__main__":
 
 
 class TestSysArchCompositeIntegration:
+    pytestmark = pytest.mark.skip(reason="system-architecture dimension removed")
+
     def test_creates_sysarch_composite(self):
         from benchmark.scorers.system_architecture import create_sysarch_composite
+
         scorers = create_sysarch_composite()
         assert isinstance(scorers, list)
         scorer = CompositeScorer(scorers)
@@ -81,6 +101,7 @@ class TestSysArchCompositeIntegration:
 
     def test_sysarch_correct_answer_with_reasoning(self):
         from benchmark.scorers.system_architecture import create_sysarch_composite
+
         scorer = CompositeScorer(create_sysarch_composite())
         reasoning = (
             "Let me analyze each option:\n"

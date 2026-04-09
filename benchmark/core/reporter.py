@@ -24,7 +24,9 @@ def generate_html_report(
     """生成 HTML 报告."""
     db = Database()
     try:
-        rows = _query_results(db, models=models, dimensions=dimensions, date_range=date_range)
+        rows = _query_results(
+            db, models=models, dimensions=dimensions, date_range=date_range
+        )
         if not rows:
             raise ValueError("No results found in database")
 
@@ -41,7 +43,9 @@ def generate_html_report(
             model_scores = {}
             for model in model_list:
                 model_rows = [r for r in rows if r["model"] == model]
-                model_scores[model] = [float(r.get("final_score", 0)) for r in model_rows]
+                model_scores[model] = [
+                    float(r.get("final_score", 0)) for r in model_rows
+                ]
             stat_tests = pairwise_comparison(model_scores)
 
         # 详细结果
@@ -168,17 +172,12 @@ _DIMENSION_AXES = {
         ("method_elegance", "方法优雅度"),
         ("difficulty_adaptation", "难度适配"),
     ],
-    "system-architecture": [
-        ("answer_correctness", "答案正确性"),
-        ("reasoning_completeness", "推理完整性"),
-        ("option_analysis", "选项分析"),
-        ("reasoning_confidence", "推理置信度"),
-        ("subject_adaptation", "学科适配"),
-    ],
 }
 
 
-def _query_results(db: Database, models=None, dimensions=None, date_range=None) -> list[dict]:
+def _query_results(
+    db: Database, models=None, dimensions=None, date_range=None
+) -> list[dict]:
     """查询评测结果，包含 details 字段。"""
     conn = db._get_conn()
     query = """
@@ -209,9 +208,13 @@ def _query_results(db: Database, models=None, dimensions=None, date_range=None) 
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def _extract_dimension_scores(rows: list[dict], dimension: str, model: str) -> dict[str, float]:
+def _extract_dimension_scores(
+    rows: list[dict], dimension: str, model: str
+) -> dict[str, float]:
     """从评测结果中提取指定模型在指定维度的子分数。"""
-    model_dim_rows = [r for r in rows if r["model"] == model and r["dimension"] == dimension]
+    model_dim_rows = [
+        r for r in rows if r["model"] == model and r["dimension"] == dimension
+    ]
     if not model_dim_rows:
         return {}
     all_sub_scores: dict[str, list[float]] = {}
@@ -220,7 +223,9 @@ def _extract_dimension_scores(rows: list[dict], dimension: str, model: str) -> d
         if not details_str:
             continue
         try:
-            details = json.loads(details_str) if isinstance(details_str, str) else details_str
+            details = (
+                json.loads(details_str) if isinstance(details_str, str) else details_str
+            )
         except (json.JSONDecodeError, TypeError):
             continue
         composite = details.get("composite", {})
@@ -233,7 +238,13 @@ def _extract_dimension_scores(rows: list[dict], dimension: str, model: str) -> d
     return {k: sum(v) / len(v) for k, v in all_sub_scores.items()}
 
 
-def _build_radar_svg(scores: dict[str, float], axes: list[tuple[str, str]], width: int = 400, height: int = 400, radius: int = 140) -> str:
+def _build_radar_svg(
+    scores: dict[str, float],
+    axes: list[tuple[str, str]],
+    width: int = 400,
+    height: int = 400,
+    radius: int = 140,
+) -> str:
     """生成雷达图 SVG 字符串。"""
     n = len(axes)
     if n < 3:
@@ -252,12 +263,16 @@ def _build_radar_svg(scores: dict[str, float], axes: list[tuple[str, str]], widt
         for i in range(n):
             x, y = _point(i, level * 100)
             points.append(f"{x:.1f},{y:.1f}")
-        grid_paths.append(f'<polygon points="{" ".join(points)}" fill="none" stroke="#e5e7eb" stroke-width="1"/>')
+        grid_paths.append(
+            f'<polygon points="{" ".join(points)}" fill="none" stroke="#e5e7eb" stroke-width="1"/>'
+        )
 
     axis_lines = []
     for i in range(n):
         x, y = _point(i, 100)
-        axis_lines.append(f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{x:.1f}" y2="{y:.1f}" stroke="#d1d5db" stroke-width="1"/>')
+        axis_lines.append(
+            f'<line x1="{cx:.1f}" y1="{cy:.1f}" x2="{x:.1f}" y2="{y:.1f}" stroke="#d1d5db" stroke-width="1"/>'
+        )
 
     data_polygon = ""
     if scores:
@@ -273,7 +288,9 @@ def _build_radar_svg(scores: dict[str, float], axes: list[tuple[str, str]], widt
         for i, (key, label) in enumerate(axes):
             val = scores.get(key, 0)
             x, y = _point(i, val)
-            data_dots.append(f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="#3b82f6"/>')
+            data_dots.append(
+                f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4" fill="#3b82f6"/>'
+            )
 
     labels = []
     for i, (key, label) in enumerate(axes):
@@ -294,9 +311,13 @@ def _build_radar_svg(scores: dict[str, float], axes: list[tuple[str, str]], widt
             dy = -5
         elif sin_a > 0.3:
             dy = 10
-        labels.append(f'<text x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{anchor}" font-size="11" fill="#374151">{label}</text>')
+        labels.append(
+            f'<text x="{x + dx:.1f}" y="{y + dy:.1f}" text-anchor="{anchor}" font-size="11" fill="#374151">{label}</text>'
+        )
         fx, fy = _point(i, val)
-        labels.append(f'<text x="{fx:.1f}" y="{fy - 10:.1f}" text-anchor="middle" font-size="10" fill="#3b82f6" font-weight="bold">{val:.0f}</text>')
+        labels.append(
+            f'<text x="{fx:.1f}" y="{fy - 10:.1f}" text-anchor="middle" font-size="10" fill="#3b82f6" font-weight="bold">{val:.0f}</text>'
+        )
 
     parts = [
         f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">',
@@ -311,7 +332,9 @@ def _build_radar_svg(scores: dict[str, float], axes: list[tuple[str, str]], widt
     return "\n".join(parts)
 
 
-def _build_dimension_score_table(rows: list[dict]) -> dict[str, dict[str, dict[str, float]]]:
+def _build_dimension_score_table(
+    rows: list[dict],
+) -> dict[str, dict[str, dict[str, float]]]:
     """构建维度子分数表。Returns: {model: {dimension: {sub_dimension: avg_score}}}"""
     result: dict[str, dict[str, dict[str, float]]] = {}
     for row in rows:
@@ -321,7 +344,9 @@ def _build_dimension_score_table(rows: list[dict]) -> dict[str, dict[str, dict[s
         if not details_str:
             continue
         try:
-            details = json.loads(details_str) if isinstance(details_str, str) else details_str
+            details = (
+                json.loads(details_str) if isinstance(details_str, str) else details_str
+            )
         except (json.JSONDecodeError, TypeError):
             continue
         composite = details.get("composite", {})
@@ -340,7 +365,9 @@ def _build_dimension_score_table(rows: list[dict]) -> dict[str, dict[str, dict[s
         for dim_scores in model_dims.values():
             for key in list(dim_scores.keys()):
                 bucket = dim_scores[key]
-                dim_scores[key] = bucket["sum"] / bucket["count"] if bucket["count"] > 0 else 0.0
+                dim_scores[key] = (
+                    bucket["sum"] / bucket["count"] if bucket["count"] > 0 else 0.0
+                )
     return result
 
 
