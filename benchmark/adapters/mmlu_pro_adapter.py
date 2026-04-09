@@ -1,4 +1,9 @@
-"""MMLU-Pro 数据集适配器。加载技术相关学科（CS、数学、物理），共 15 题."""
+"""MMLU-Pro 数据集适配器。加载技术相关学科（CS、数学、物理），共 15 题.
+
+.. deprecated::
+    system-architecture 维度已被移除，此适配器不再用于主动评测。
+    保留此文件用于历史数据兼容。
+"""
 
 from __future__ import annotations
 

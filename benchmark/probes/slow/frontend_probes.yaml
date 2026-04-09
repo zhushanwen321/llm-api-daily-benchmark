@@ -1,0 +1,225 @@
+probes:
+  # 1. React组件
+  - id: frontend_react_001
+    category: React_Components
+    type: code_generation
+    framework: React
+    difficulty: medium
+    prompt: |
+      用React实现一个可复用的表格组件：
+      1. 支持列配置（column key, title, width, render函数）
+      2. 支持排序（升序/降序切换）
+      3. 支持分页（page, pageSize, total）
+      4. 支持行选择（单选/多选）
+      5. 支持自定义单元格渲染
+      6. 响应式设计
+    expected_behavior: "生成完整的React表格组件代码"
+    validation_criteria:
+      - "列配置数组"
+      - "排序逻辑"
+      - "分页组件"
+      - "选择功能"
+      - "自定义render"
+      - "useState/useEffect"
+
+  - id: frontend_react_002
+    category: React_Components
+    type: code_generation
+    framework: React
+    difficulty: medium
+    prompt: |
+      用React实现一个表单组件：
+      1. 动态表单字段生成（fields配置）
+      2. 字段类型支持：text, select, date, checkbox, radio
+      3. 表单验证（required, pattern, minLength, maxLength）
+      4. 错误提示显示
+      5. 表单提交/重置功能
+      6. 使用React Hook Form库
+    expected_behavior: "生成完整的React表单组件代码"
+    validation_criteria:
+      - "字段配置"
+      - "多类型支持"
+      - "验证规则"
+      - "错误提示"
+      - "提交处理"
+      - "useForm hook"
+
+  - id: frontend_react_003
+    category: React_Components
+    type: code_generation
+    framework: React
+    difficulty: hard
+    prompt: |
+      用React实现一个拖拽排序列表组件：
+      1. 使用@hello-pangea/dnd库
+      2. 支持水平和垂直拖拽
+      3. 拖拽时显示占位符
+      4. 拖拽结束回调
+      5. 支持动画效果
+      6. 无障碍支持（键盘拖拽）
+    expected_behavior: "生成完整的拖拽列表组件代码"
+    validation_criteria:
+      - "DragDropContext"
+      - "Droppable组件"
+      - "Draggable组件"
+      - "onDragEnd回调"
+      - "动画效果"
+      - "无障碍支持"
+
+  # 2. CSS样式
+  - id: frontend_css_001
+    category: CSS_Styling
+    type: code_generation
+    framework: CSS
+    difficulty: medium
+    prompt: |
+      用CSS实现一个响应式卡片网格布局：
+      1. 使用CSS Grid
+      2. 响应式断点：mobile(1列), tablet(2列), desktop(3列), large(4列)
+      3. 卡片hover效果（阴影提升、缩放）
+      4. 卡片内容：图片、标题、描述、按钮
+      5. 使用CSS变量定义主题色
+      6. 打印样式支持
+    expected_behavior: "生成完整的响应式卡片布局CSS代码"
+    validation_criteria:
+      - "CSS Grid布局"
+      - "媒体查询断点"
+      - "hover效果"
+      - "CSS变量"
+      - "卡片结构"
+      - "打印样式"
+
+  - id: frontend_css_002
+    category: CSS_Styling
+    type: code_generation
+    framework: CSS
+    difficulty: hard
+    prompt: |
+      用CSS实现一个主题切换系统：
+      1. 支持亮色/暗色主题切换
+      2. 使用CSS自定义属性（variables）
+      3. 主题持久化（localStorage）
+      4. 系统主题跟随（prefers-color-scheme）
+      5. 平滑过渡动画
+      6. 避免闪烁（FOUC）
+    expected_behavior: "生成完整的主题切换系统CSS代码"
+    validation_criteria:
+      - "CSS变量定义"
+      - "暗色主题"
+      - "亮色主题"
+      - "localStorage"
+      - "prefers-color-scheme"
+      - "过渡动画"
+
+  # 3. DOM操作
+  - id: frontend_dom_001
+    category: DOM_Manipulation
+    type: code_generation
+    framework: JavaScript
+    difficulty: medium
+    prompt: |
+      用原生JavaScript实现一个无限滚动列表：
+      1. Intersection Observer API检测滚动到底部
+      2. 动态加载数据（分页API调用）
+      3. 加载状态指示器
+      4. 滚动节流
+      5. 错误处理和重试
+      6. 滚动位置恢复
+    expected_behavior: "生成完整的无限滚动实现代码"
+    validation_criteria:
+      - "IntersectionObserver"
+      - "数据加载"
+      - "加载指示器"
+      - "节流处理"
+      - "错误处理"
+      - "位置恢复"
+
+  - id: frontend_dom_002
+    category: DOM_Manipulation
+    type: code_generation
+    framework: JavaScript
+    difficulty: hard
+    prompt: |
+      用原生JavaScript实现一个模态框组件：
+      1. 点击按钮/ESC键打开
+      2. 点击遮罩层/关闭按钮关闭
+      3. 禁止背景滚动
+      4. 焦点陷阱（Tab键循环）
+      5. 动画效果（fade in/out, scale）
+      6. 支持自定义内容插槽
+    expected_behavior: "生成完整的模态框组件代码"
+    validation_criteria:
+      - "打开关闭控制"
+      - "禁止滚动"
+      - "焦点陷阱"
+      - "动画效果"
+      - "遮罩层"
+      - "键盘事件"
+
+  # 4. 表单处理
+  - id: frontend_form_001
+    category: Form_Handling
+    type: code_generation
+    framework: React
+    difficulty: medium
+    prompt: |
+      用React实现一个登录表单：
+      1. 邮箱和密码输入
+      2. 实时验证（邮箱格式、密码长度）
+      3. 显示/隐藏密码切换
+      4. 记住登录状态（checkbox）
+      5. 提交loading状态
+      6. 错误提示
+    expected_behavior: "生成完整的React登录表单代码"
+    validation_criteria:
+      - "输入组件"
+      - "验证逻辑"
+      - "密码可见切换"
+      - "remember me"
+      - "loading状态"
+      - "错误显示"
+
+  - id: frontend_form_002
+    category: Form_Handling
+    type: code_generation
+    framework: React
+    difficulty: hard
+    prompt: |
+      用React实现一个多步骤表单向导：
+      1. 步骤指示器（Stepper）
+      2. 每步骤独立的表单验证
+      3. 下一步/上一步导航
+      4. 表单数据持久化（防丢失）
+      5. 最终提交和进度保存
+      6. 步骤完成状态显示
+    expected_behavior: "生成完整的多步骤表单代码"
+    validation_criteria:
+      - "Stepper组件"
+      - "步骤验证"
+      - "导航控制"
+      - "数据持久化"
+      - "提交处理"
+      - "状态显示"
+
+  # 5. 状态管理
+  - id: frontend_state_001
+    category: State_Management
+    type: code_generation
+    framework: React
+    difficulty: hard
+    prompt: |
+      用React Context实现一个全局状态管理方案：
+      1. 创建ThemeContext（主题、切换函数）
+      2. 创建AuthContext（用户信息、登录登出）
+      3. 创建CartContext（购物车、操作方法）
+      4. Provider组合组件
+      5. 自定义hooks（useTheme, useAuth, useCart）
+      6. 状态持久化
+    expected_behavior: "生成完整的Context全局状态代码"
+    validation_criteria:
+      - "createContext"
+      - "Provider组件"
+      - "useContext hook"
+      - "自定义hooks"
+      - "状态持久化"
+      - "多Context组合"

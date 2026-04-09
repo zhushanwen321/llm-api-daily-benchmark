@@ -1,0 +1,122 @@
+probes:
+  # 1. 逻辑推理 - 条件逻辑
+  - id: reasoning_logic_conditional_001
+    category: logic_reasoning
+    type: conditional
+    prompt: "如果下雨，地面就会湿。如果地面是干的，那么以下哪个选项是正确的？A) 一定没下雨 B) 可能没下雨 C) 一定下过雨 D) 无法判断"
+    expected_output: "B"
+    difficulty: medium
+
+  - id: reasoning_logic_conditional_002
+    category: logic_reasoning
+    type: conditional
+    prompt: "所有程序员都会写代码。张明是程序员。李华不会写代码。根据以上信息，以下哪个推断是错误的？A) 张明会写代码 B) 李华不是程序员 C) 所有人都会写代码 D) 有些程序员不会写代码"
+    expected_output: "C"
+    difficulty: medium
+
+  # 2. 逻辑推理 - 归纳演绎
+  - id: reasoning_logic_deduction_001
+    category: logic_reasoning
+    type: deduction
+    prompt: "观察到以下事实：所有的乌鸦都是黑色的；这只鸟是黑色的；这只鸟是乌鸦。以下哪个推理是正确的？A) 这个推理是有效的 B) 这个推理是无效的，因为黑色不一定是乌鸦 C) 这个推理是无效的，因为乌鸦不一定是黑色的 D) 无法判断"
+    expected_output: "B"
+    difficulty: medium
+
+  - id: reasoning_logic_deduction_002
+    category: logic_reasoning
+    type: deduction
+    prompt: "小明比小红高，小红比小华高，小华比小丽高。谁最矮？"
+    expected_output: "小丽"
+    difficulty: easy
+
+  # 3. 数学推理 - 基础计算
+  - id: reasoning_math_basic_001
+    category: math_reasoning
+    type: arithmetic
+    prompt: "一家商店销售两种商品：A商品原价100元，打8折；B商品原价80元，买二送一。如果小明买了3个A商品和2个B商品，请问实际花费多少元？"
+    expected_output: "320"
+    difficulty: medium
+
+  - id: reasoning_math_basic_002
+    category: math_reasoning
+    type: arithmetic
+    prompt: "一个水池有进水管和出水管。进水管4小时可以注满，出水管6小时可以放完。如果两管同时打开，需要多少小时才能注满空水池？"
+    expected_output: "12"
+    difficulty: medium
+
+  # 4. 数学推理 - 比例问题
+  - id: reasoning_math_ratio_001
+    category: math_reasoning
+    type: ratio
+    prompt: "某班级学生人数在30到40之间。如果每组5人分组或每组6人分组都正好分完，这个班级有多少学生？"
+    expected_output: "30或36"
+    difficulty: medium
+
+  - id: reasoning_math_ratio_002
+    category: math_reasoning
+    type: ratio
+    prompt: "一辆车以恒定速度行驶，2小时行驶了120公里。如果速度保持不变，3.5小时能行驶多少公里？"
+    expected_output: "210"
+    difficulty: easy
+
+  # 5. 数学推理 - 百分比
+  - id: reasoning_math_percent_001
+    category: math_reasoning
+    type: percentage
+    prompt: "某商品先涨价20%，再降价15%，最终价格是原价的百分之多少？"
+    expected_output: "102"
+    difficulty: medium
+
+  # 6. 常识推理 - 因果关系
+  - id: reasoning_common_sense_causal_001
+    category: common_sense_reasoning
+    type: causal
+    prompt: "夏天在柏油马路上洒水可以降低路面温度，但这可能导致车辆打滑。根据这个信息，以下哪个是最可能发生的结果？A) 降低交通事故 B) 增加交通事故 C) 无影响 D) 路面温度升高"
+    expected_output: "B"
+    difficulty: medium
+
+  - id: reasoning_common_sense_causal_002
+    category: common_sense_reasoning
+    type: causal
+    prompt: "如果所有餐厅在周末都关门，而今天是周六，那么李雷开的餐厅会怎样？A) 开门营业 B) 关门 C) 无法确定 D) 只有部分开门"
+    expected_output: "B"
+    difficulty: easy
+
+  # 7. 常识推理 - 时间推理
+  - id: reasoning_common_sense_temporal_001
+    category: common_sense_reasoning
+    type: temporal
+    prompt: "小明每天早上7点起床，8点到学校。如果学校在7:50开门，他最晚什么时候必须离开家才能准时到校？假设从家到学校需要15分钟。"
+    expected_output: "7:35"
+    difficulty: easy
+
+  # 8. 常识推理 - 空间推理
+  - id: reasoning_common_sense_spatial_001
+    category: common_sense_reasoning
+    type: spatial
+    prompt: "在一场足球赛中，A队在上半场进了2个球，下半场进了3个球；B队在上半场进了1个球，下半场进了4个球。如果比赛进入点球大战前两队战平，点球大战谁会赢？"
+    expected_output: "无法确定"
+    difficulty: medium
+
+  # 9. 多步推理 - 复杂问题
+  - id: reasoning_multi_step_001
+    category: multi_step_reasoning
+    type: complex
+    prompt: "有3个盒子：一个只装苹果，一个只装橙子，一个苹果和橙子都装。但所有盒子标签都贴错了。如果从标签为'苹果和橙子'的盒子里拿出一个水果，看到是苹果，那么这个盒子装的是什么？"
+    expected_output: "只有苹果"
+    difficulty: hard
+
+  - id: reasoning_multi_step_002
+    category: multi_step_reasoning
+    type: complex
+    prompt: "一个数列的规律是：第1个数是1，第2个数是1，之后每个数都是前两个数之和。计算第10个数是多少？"
+    expected_output: "55"
+    difficulty: medium
+
+  # 10. 悖论与矛盾识别
+  - id: reasoning_paradox_001
+    category: logic_reasoning
+    type: paradox
+    prompt: "以下陈述是否自相矛盾：'这句话是假话'。A) 自相矛盾 B) 不是自相矛盾 C) 无法判断 D) 既是真话也是假话"
+    expected_output: "A"
+    difficulty: hard

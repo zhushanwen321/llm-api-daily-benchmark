@@ -117,7 +117,7 @@ class QualitySignalCollector:
     def _check_format(raw_output: str, dimension: str) -> float:
         if dimension == "reasoning":
             return 1.0 if "\\boxed{" in raw_output else 0.0
-        if dimension in ("backend-dev", "system-architecture"):
+        if dimension == "backend-dev":
             return QualitySignalCollector._has_valid_json(raw_output)
         if dimension == "frontend-dev":
             return QualitySignalCollector._has_valid_json_with_code(raw_output)

@@ -81,11 +81,15 @@ def _insert_history(
         db.save_result(result)
         metrics = ApiCallMetrics(
             result_id=result_id,
-            prompt_tokens=(prompt_tokens or [50])[min(i, len(prompt_tokens or [50]) - 1)],
+            prompt_tokens=(prompt_tokens or [50])[
+                min(i, len(prompt_tokens or [50]) - 1)
+            ],
             completion_tokens=100,
             reasoning_tokens=10,
             duration=1.0,
-            tokens_per_second=(tps_values or [50.0])[min(i, len(tps_values or [50.0]) - 1)],
+            tokens_per_second=(tps_values or [50.0])[
+                min(i, len(tps_values or [50.0]) - 1)
+            ],
             ttft_content=(ttft_values or [0.5])[min(i, len(ttft_values or [0.5]) - 1)],
             created_at=now - timedelta(days=i),
         )
@@ -97,7 +101,9 @@ def _insert_history(
 
 class TestFormatCompliance:
     def test_reasoning_with_boxed(self):
-        assert QualitySignalCollector._check_format(r"答案 \boxed{42}", "reasoning") == 1.0
+        assert (
+            QualitySignalCollector._check_format(r"答案 \boxed{42}", "reasoning") == 1.0
+        )
 
     def test_reasoning_without_boxed(self):
         assert QualitySignalCollector._check_format("答案是 42", "reasoning") == 0.0
@@ -107,11 +113,9 @@ class TestFormatCompliance:
         assert QualitySignalCollector._check_format(output, "backend-dev") == 1.0
 
     def test_backend_dev_no_json(self):
-        assert QualitySignalCollector._check_format("no json here", "backend-dev") == 0.0
-
-    def test_system_architecture_valid_json(self):
-        output = '{"architecture": "microservice"}'
-        assert QualitySignalCollector._check_format(output, "system-architecture") == 1.0
+        assert (
+            QualitySignalCollector._check_format("no json here", "backend-dev") == 0.0
+        )
 
     def test_frontend_dev_json_with_code(self):
         output = '{"code": "<div>Hello</div>", "explanation": "..."}'
@@ -195,7 +199,9 @@ class TestGarbledTextRatio:
 
 class TestRefusalDetected:
     def test_chinese_refusal(self):
-        assert QualitySignalCollector._check_refusal("作为一个AI，我无法回答这个问题") == 1
+        assert (
+            QualitySignalCollector._check_refusal("作为一个AI，我无法回答这个问题") == 1
+        )
 
     def test_english_refusal(self):
         assert QualitySignalCollector._check_refusal("I cannot help with that") == 1
@@ -224,16 +230,28 @@ class TestRefusalDetected:
 
 class TestLanguageConsistency:
     def test_pure_chinese(self):
-        assert QualitySignalCollector._calc_language_consistency("这是一段纯中文文本") == 1.0
+        assert (
+            QualitySignalCollector._calc_language_consistency("这是一段纯中文文本")
+            == 1.0
+        )
 
     def test_pure_english(self):
-        assert QualitySignalCollector._calc_language_consistency("This is pure English text") == 1.0
+        assert (
+            QualitySignalCollector._calc_language_consistency(
+                "This is pure English text"
+            )
+            == 1.0
+        )
 
     def test_mixed_dominant_chinese(self):
         # 大量中文 + 少量英文，比例 >= 0.1 → 1.0
         # "这是一个很长的中文文本" = 11 个 CJK 字符，重复 10 次 = 110 个 CJK
         # 需要 >= 11 个英文单词才能 ratio >= 0.1
-        text = "这是一个很长的中文文本" * 10 + " " + " ".join([f"word{i}" for i in range(12)])
+        text = (
+            "这是一个很长的中文文本" * 10
+            + " "
+            + " ".join([f"word{i}" for i in range(12)])
+        )
         assert QualitySignalCollector._calc_language_consistency(text) == 1.0
 
     def test_heavily_mixed(self):
@@ -299,7 +317,9 @@ class TestOutputLengthZscore:
 class TestThinkingRatio:
     def test_normal_ratio(self):
         metrics = {"reasoning_tokens": 300, "completion_tokens": 500}
-        assert QualitySignalCollector._calc_thinking_ratio(metrics) == pytest.approx(0.6)
+        assert QualitySignalCollector._calc_thinking_ratio(metrics) == pytest.approx(
+            0.6
+        )
 
     def test_zero_completion(self):
         metrics = {"reasoning_tokens": 100, "completion_tokens": 0}
@@ -327,17 +347,33 @@ class TestEmptyReasoning:
         assert QualitySignalCollector._check_empty_reasoning("some reasoning", {}) == 0
 
     def test_none_content_no_tokens(self):
-        assert QualitySignalCollector._check_empty_reasoning(None, {"reasoning_tokens": 0}) == 0
+        assert (
+            QualitySignalCollector._check_empty_reasoning(None, {"reasoning_tokens": 0})
+            == 0
+        )
 
     def test_empty_content_no_tokens(self):
-        assert QualitySignalCollector._check_empty_reasoning("  ", {"reasoning_tokens": 0}) == 0
+        assert (
+            QualitySignalCollector._check_empty_reasoning("  ", {"reasoning_tokens": 0})
+            == 0
+        )
 
     def test_empty_content_with_tokens(self):
         """有 reasoning_tokens 但内容为空 → 内容丢失 → 1。"""
-        assert QualitySignalCollector._check_empty_reasoning(None, {"reasoning_tokens": 100}) == 1
+        assert (
+            QualitySignalCollector._check_empty_reasoning(
+                None, {"reasoning_tokens": 100}
+            )
+            == 1
+        )
 
     def test_whitespace_content_with_tokens(self):
-        assert QualitySignalCollector._check_empty_reasoning("  ", {"reasoning_tokens": 50}) == 1
+        assert (
+            QualitySignalCollector._check_empty_reasoning(
+                "  ", {"reasoning_tokens": 50}
+            )
+            == 1
+        )
 
 
 # ── 信号 9: truncated (inline test) ──
@@ -373,7 +409,9 @@ class TestTokenEfficiencyZscore:
         collector = QualitySignalCollector(db, "test/model")
         # mean=100, std=0 → 返回 0.0
         result = asyncio.run(
-            collector._calc_token_efficiency_zscore({"prompt_tokens": 200}, _make_task())
+            collector._calc_token_efficiency_zscore(
+                {"prompt_tokens": 200}, _make_task()
+            )
         )
         assert result == 0.0
         db.close()
@@ -384,7 +422,9 @@ class TestTokenEfficiencyZscore:
         collector = QualitySignalCollector(db, "test/model")
         # mean=100, pstdev≈14.14
         result = asyncio.run(
-            collector._calc_token_efficiency_zscore({"prompt_tokens": 100}, _make_task())
+            collector._calc_token_efficiency_zscore(
+                {"prompt_tokens": 100}, _make_task()
+            )
         )
         assert abs(result) < 0.01
         db.close()
@@ -397,9 +437,7 @@ class TestTpsZscore:
     def test_no_history(self):
         db = _test_db()
         collector = QualitySignalCollector(db, "test/model")
-        result = asyncio.run(
-            collector._calc_tps_zscore({"tokens_per_second": 50.0})
-        )
+        result = asyncio.run(collector._calc_tps_zscore({"tokens_per_second": 50.0}))
         assert result == 0.0
         db.close()
 
@@ -407,9 +445,7 @@ class TestTpsZscore:
         db = _test_db()
         _insert_history(db, tps_values=[40.0, 50.0, 60.0])
         collector = QualitySignalCollector(db, "test/model")
-        result = asyncio.run(
-            collector._calc_tps_zscore({"tokens_per_second": 50.0})
-        )
+        result = asyncio.run(collector._calc_tps_zscore({"tokens_per_second": 50.0}))
         # mean=50, pstdev≈7.07, (50-50)/7.07 = 0
         assert abs(result) < 0.01
         db.close()
@@ -419,9 +455,7 @@ class TestTpsZscore:
         _insert_history(db, tps_values=[50.0, 50.0, 50.0, 50.0])
         collector = QualitySignalCollector(db, "test/model")
         # mean=50, std=0 → 返回 0.0
-        result = asyncio.run(
-            collector._calc_tps_zscore({"tokens_per_second": 10.0})
-        )
+        result = asyncio.run(collector._calc_tps_zscore({"tokens_per_second": 10.0}))
         assert result == 0.0
         db.close()
 
@@ -433,9 +467,7 @@ class TestTtftZscore:
     def test_no_history(self):
         db = _test_db()
         collector = QualitySignalCollector(db, "test/model")
-        result = asyncio.run(
-            collector._calc_ttft_zscore({"ttft_content": 0.5})
-        )
+        result = asyncio.run(collector._calc_ttft_zscore({"ttft_content": 0.5}))
         assert result == 0.0
         db.close()
 
@@ -443,9 +475,7 @@ class TestTtftZscore:
         db = _test_db()
         _insert_history(db, ttft_values=[0.4, 0.5, 0.6])
         collector = QualitySignalCollector(db, "test/model")
-        result = asyncio.run(
-            collector._calc_ttft_zscore({"ttft_content": 0.5})
-        )
+        result = asyncio.run(collector._calc_ttft_zscore({"ttft_content": 0.5}))
         # mean=0.5, pstdev≈0.07, (0.5-0.5)/0.07 ≈ 0
         assert abs(result) < 0.01
         db.close()
