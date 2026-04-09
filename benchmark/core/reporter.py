@@ -168,7 +168,6 @@ _DIMENSION_AXES = {
     "reasoning": [
         ("answer_correctness", "答案正确性"),
         ("reasoning_completeness", "完整性"),
-        ("reasoning_validity", "推理正确性"),
         ("method_elegance", "方法优雅度"),
         ("difficulty_adaptation", "难度适配"),
     ],

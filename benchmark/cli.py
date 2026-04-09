@@ -67,8 +67,8 @@ _THINKING_SYSTEM_MESSAGE = (
 )
 
 
-async def _score_with_judge_timing(scorer: Any, ctx: Any, timing: TimingTracker) -> Any:
-    """带耗时追踪的评分调用，支持 judge scorer 单独计时。"""
+async def _score_with_timing(scorer: Any, ctx: Any, timing: TimingTracker) -> Any:
+    """带耗时追踪的评分调用。"""
     score_result = await scorer.ascore(ctx)
     return score_result
 
@@ -196,16 +196,8 @@ async def _evaluate_task(
 
             # Phase 2: Score calculation
             timing.start_phase("score_calculation")
-            score_result = await _score_with_judge_timing(scorer, ctx, timing)
+            score_result = await _score_with_timing(scorer, ctx, timing)
             timing.end_phase("score_calculation")
-            score_duration = score_result.details.get("judge_duration", 0.0)
-            if score_duration > 1.0:
-                logger.warning(
-                    f"PERF | {model} | {task.task_id} | "
-                    f"score_block={score_duration:.1f}s "
-                    f"(judge_api={score_duration:.1f}s, "
-                    f"type={type(scorer).__name__})"
-                )
 
             logger.debug(
                 f"任务 {task.task_id} 评分结果: score={score_result.score}, passed={score_result.passed}"
@@ -268,11 +260,10 @@ async def _evaluate_task(
             timing.end_phase("quality_signals")
 
             effective_total = timing.get_total_duration()
-            if effective_total > 10.0 or score_duration > 1.0:
+            if effective_total > 10.0:
                 logger.info(
                     f"GANTT | {model} | {task.task_id} | "
                     f"llm={api_duration:.1f}s | "
-                    f"score={score_duration:.1f}s | "
                     f"total={effective_total:.1f}s"
                 )
 
@@ -345,23 +336,7 @@ async def _run_evaluation(
     adapter = adapter_cls()
     evaluator = evaluator_cls()
     llm = LLMEvalAdapter(model=model)
-
-    # reasoning 需要 judge LLM 实例传给 LLM Judge（其他维度不需要）
-    # 可以通过 DISABLE_JUDGE=true 禁用 judge
-    judge_llm = None
-    if dimension == "reasoning":
-        disable_judge = os.getenv("DISABLE_JUDGE", "false").lower() == "true"
-        if disable_judge:
-            logger.info(
-                "Judge disabled by DISABLE_JUDGE=true, using non-judge scoring only"
-            )
-            scorer = CompositeScorer(scorer_factory())
-        else:
-            judge_model = os.getenv("JUDGE_MODEL", "opencode-go-gk/kimi-k2.5")
-            judge_llm = LLMEvalAdapter(model=judge_model)
-            scorer = CompositeScorer(scorer_factory(llm=judge_llm))
-    else:
-        scorer = CompositeScorer(scorer_factory())
+    scorer = CompositeScorer(scorer_factory())
 
     logger.debug(
         f"加载适配器: {adapter_cls.__name__}, 评分器: {type(scorer).__name__}, 编排器: {evaluator_cls.__name__}"
@@ -525,8 +500,6 @@ async def _run_evaluation(
     finally:
         db.close()
         await llm.close()
-        if judge_llm:
-            await judge_llm.close()
 
 
 def _group_by_provider(
