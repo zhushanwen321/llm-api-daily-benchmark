@@ -79,7 +79,6 @@ class ProbeRunner:
                     details={"error": str(e)},
                 )
 
-        # Concurrent execution with semaphore to limit concurrency
         semaphore = asyncio.Semaphore(5)
 
         async def run_with_semaphore(task):
@@ -169,9 +168,7 @@ class ProbeRunner:
         return summary
 
     async def __aenter__(self) -> ProbeRunner:
-        """Async context manager entry."""
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Async context manager exit - cleanup adapter."""
         await self.adapter.close()
