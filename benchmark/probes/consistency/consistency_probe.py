@@ -146,9 +146,9 @@ class ConsistencyProbe(BaseProbe):
         )
 
     def _calculate_similarity(self, response: str, expected: str) -> float:
-        """计算响应与期望答案的相似度."""
-        response_lower = response.lower()
-        expected_lower = expected.lower()
+        """计算响应与期望答案的相似度，使用 Jaccard 相似度."""
+        response_lower = response.lower().strip()
+        expected_lower = expected.lower().strip()
 
         if not expected_lower:
             return 0.0
@@ -163,9 +163,14 @@ class ConsistencyProbe(BaseProbe):
             return 0.0
 
         intersection = response_words & expected_words
-        similarity = len(intersection) / len(expected_words) * 100
+        union = response_words | expected_words
 
-        return min(similarity, 100.0)
+        if not union:
+            return 0.0
+
+        # Jaccard similarity: intersection / union
+        jaccard = len(intersection) / len(union)
+        return jaccard * 100
 
     def calculate_group_consistency(
         self,

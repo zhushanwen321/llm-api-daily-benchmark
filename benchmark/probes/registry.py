@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 from benchmark.probes import BaseProbe
@@ -15,14 +16,17 @@ class ProbeRegistry:
     """Registry for managing and executing all probes."""
 
     _instance: ProbeRegistry | None = None
+    _lock: threading.Lock = threading.Lock()
     _probes: dict[str, BaseProbe]
 
     def __new__(cls) -> ProbeRegistry:
-        """Singleton pattern."""
+        """Thread-safe singleton pattern."""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance._probes = {}
-            cls._instance._register_default_probes()
+            with cls._lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+                    cls._instance._probes = {}
+                    cls._instance._register_default_probes()
         return cls._instance
 
     def _register_default_probes(self) -> None:

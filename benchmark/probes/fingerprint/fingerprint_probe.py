@@ -15,6 +15,23 @@ from benchmark.probes import BaseProbe
 class FingerprintProbe(BaseProbe):
     """指纹探针 - 通过特定输入识别模型身份和版本特征."""
 
+    DEFAULT_SCORING_RULES = {
+        "valid_json": {"weight": 20, "condition": "features.get('valid_json')"},
+        "exact_word_count": {
+            "weight": 30,
+            "partial_weight": 15,
+            "tolerance": 2,
+        },
+        "has_comments": {"weight": 20},
+        "has_step_by_step": {"weight": 20},
+        "base_score": 50.0,
+        "max_score": 100.0,
+    }
+
+    def __init__(self, scoring_rules: dict | None = None) -> None:
+        """初始化指纹探针，可选自定义评分规则."""
+        self.scoring_rules = scoring_rules or self.DEFAULT_SCORING_RULES.copy()
+
     @property
     def frequency(self) -> str:
         return "slow"
@@ -191,19 +208,21 @@ class FingerprintProbe(BaseProbe):
         return features
 
     def _calculate_score(self, features: dict, assertions: dict) -> float:
-        """根据特征和断言计算得分."""
-        score = 50.0
+        """根据特征和断言计算得分，使用可配置评分规则."""
+        rules = self.scoring_rules
+        score = rules.get("base_score", 50.0)
 
         if assertions.get("valid_json") and features.get("valid_json"):
-            score += 20
+            score += rules.get("valid_json", {}).get("weight", 20)
 
         if assertions.get("exact_word_count"):
             target = assertions["exact_word_count"]
             actual = features.get("actual_word_count", 0)
+            word_count_rule = rules.get("exact_word_count", {})
             if actual == target:
-                score += 30
-            elif abs(actual - target) <= 2:
-                score += 15
+                score += word_count_rule.get("weight", 30)
+            elif abs(actual - target) <= word_count_rule.get("tolerance", 2):
+                score += word_count_rule.get("partial_weight", 15)
 
         if assertions.get("has_comments"):
             if (
@@ -211,12 +230,12 @@ class FingerprintProbe(BaseProbe):
                 or features.get("has_docstring_double")
                 or features.get("has_docstring_single")
             ):
-                score += 20
+                score += rules.get("has_comments", {}).get("weight", 20)
 
         if assertions.get("has_step_by_step") and features.get("has_steps"):
-            score += 20
+            score += rules.get("has_step_by_step", {}).get("weight", 20)
 
-        return min(score, 100.0)
+        return min(score, rules.get("max_score", 100.0))
 
     def extract_features(self, result: EvalResult) -> dict[str, Any]:
         """提取指纹特征用于模型识别."""

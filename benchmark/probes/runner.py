@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Any
 from datetime import datetime
 
+from benchmark.probes import BaseProbe
 from benchmark.probes.registry import ProbeRegistry
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.models.schemas import EvalResult
+
+logger = logging.getLogger(__name__)
 
 
 class ProbeRunner:
@@ -25,8 +29,9 @@ class ProbeRunner:
         probe_name: str,
         model: str,
         limit: int | None = None,
+        timeout_seconds: float = 300.0,
     ) -> list[EvalResult]:
-        """Run a single probe type."""
+        """Run a single probe type with timeout."""
         probe = self.registry.get(probe_name)
         if not probe:
             raise ValueError(f"Probe not found: {probe_name}")
@@ -35,12 +40,54 @@ class ProbeRunner:
         if limit:
             tasks = tasks[:limit]
 
-        results: list[EvalResult] = []
-        for task in tasks:
-            result = await probe.execute_probe(task, model, self.adapter)
-            results.append(result)
+        async def run_with_timeout(task):
+            try:
+                return await asyncio.wait_for(
+                    probe.execute_probe(task, model, self.adapter),
+                    timeout=timeout_seconds,
+                )
+            except asyncio.TimeoutError:
+                logger.error(
+                    f"Probe task {task.task_id} timed out after {timeout_seconds}s"
+                )
+                return EvalResult(
+                    result_id=f"{model}_{task.task_id}_timeout",
+                    run_id="",
+                    task_id=task.task_id,
+                    task_content=task.prompt,
+                    model_output="[TIMEOUT]",
+                    functional_score=0.0,
+                    final_score=0.0,
+                    passed=False,
+                    execution_time=timeout_seconds,
+                    created_at=datetime.now(),
+                    details={"error": f"Timeout after {timeout_seconds}s"},
+                )
+            except Exception as e:
+                logger.error(f"Probe task {task.task_id} failed: {e}")
+                return EvalResult(
+                    result_id=f"{model}_{task.task_id}_error",
+                    run_id="",
+                    task_id=task.task_id,
+                    task_content=task.prompt,
+                    model_output=f"[ERROR: {str(e)}]",
+                    functional_score=0.0,
+                    final_score=0.0,
+                    passed=False,
+                    execution_time=0.0,
+                    created_at=datetime.now(),
+                    details={"error": str(e)},
+                )
 
-        return results
+        # Concurrent execution with semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(5)
+
+        async def run_with_semaphore(task):
+            async with semaphore:
+                return await run_with_timeout(task)
+
+        results = await asyncio.gather(*[run_with_semaphore(task) for task in tasks])
+        return list(results)
 
     async def run_all_probes(
         self,
@@ -79,7 +126,9 @@ class ProbeRunner:
 
         return results
 
-    def get_results_summary(self, results: dict[str, list[EvalResult]]) -> dict[str, Any]:
+    def get_results_summary(
+        self, results: dict[str, list[EvalResult]]
+    ) -> dict[str, Any]:
         """Generate summary statistics from results."""
         summary = {
             "total_probes": len(results),
@@ -92,7 +141,11 @@ class ProbeRunner:
         for probe_name, probe_results in results.items():
             passed = sum(1 for r in probe_results if r.passed)
             total = len(probe_results)
-            avg_score = sum(r.functional_score for r in probe_results) / total if total > 0 else 0
+            avg_score = (
+                sum(r.functional_score for r in probe_results) / total
+                if total > 0
+                else 0
+            )
 
             summary["total_tasks"] += total
             summary["passed_tasks"] += passed
@@ -107,7 +160,9 @@ class ProbeRunner:
             }
 
         if summary["total_tasks"] > 0:
-            summary["overall_pass_rate"] = summary["passed_tasks"] / summary["total_tasks"] * 100
+            summary["overall_pass_rate"] = (
+                summary["passed_tasks"] / summary["total_tasks"] * 100
+            )
         else:
             summary["overall_pass_rate"] = 0
 

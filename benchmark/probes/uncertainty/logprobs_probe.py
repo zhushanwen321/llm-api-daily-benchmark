@@ -187,6 +187,7 @@ class LogprobsProbe(BaseProbe):
         combined_text = " ".join(responses).lower()
 
         uncertainty_markers = [
+            # English
             "maybe",
             "perhaps",
             "probably",
@@ -195,9 +196,21 @@ class LogprobsProbe(BaseProbe):
             "not sure",
             "uncertain",
             "possibly",
+            # Chinese
+            "可能",
+            "也许",
+            "或许",
+            "大概",
+            "好像",
+            "不确定",
+            "不太确定",
+            "不太清楚",
+            "我猜",
+            "估计",
         ]
 
         confidence_markers = [
+            # English
             "certainly",
             "definitely",
             "absolutely",
@@ -205,6 +218,16 @@ class LogprobsProbe(BaseProbe):
             "100%",
             "completely correct",
             "without doubt",
+            # Chinese
+            "确定",
+            "肯定",
+            "绝对",
+            "无疑",
+            "明确",
+            "完全正确",
+            "百分之百",
+            "毫无疑问",
+            "一定",
         ]
 
         uncertainty_count = sum(1 for m in uncertainty_markers if m in combined_text)
