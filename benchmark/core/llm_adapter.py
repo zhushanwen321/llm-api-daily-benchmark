@@ -7,7 +7,7 @@ import json
 import logging
 import os
 import time
-from typing import Any
+from typing import Any, cast
 
 import httpx
 
@@ -29,8 +29,6 @@ _CHUNK_IDLE_TIMEOUT = 60
 
 
 class LLMEvalAdapter:
-    """LLM 调用适配器，支持连接池复用。"""
-
     def __init__(
         self,
         model: str | None = None,
@@ -70,7 +68,6 @@ class LLMEvalAdapter:
         system_message: str | None = None,
         disable_thinking: bool = False,
     ) -> GenerateResponse:
-        """异步调用 LLM 生成文本。每次 attempt 独立 acquire/release semaphore。"""
         cfg = self._get_model_config(model)
         api_key = cfg["api_key"]
         api_base = cfg["api_base"].rstrip("/")
@@ -168,6 +165,12 @@ class LLMEvalAdapter:
             await client.aclose()
         self._clients.clear()
 
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        await self.close()
+
     async def _single_api_request(
         self,
         url: str,
@@ -194,11 +197,7 @@ class LLMEvalAdapter:
                     400 <= exc.response.status_code < 500
                     and exc.response.status_code != 429
                 ):
-                    error_body = ""
-                    try:
-                        error_body = exc.response.text[:300]
-                    except Exception:
-                        pass
+                    error_body = exc.response.text[:300] if exc.response.text else ""
                     logger.error(
                         f"[{model}] 客户端错误 {exc.response.status_code}，不重试: {error_body}"
                     )
@@ -464,12 +463,10 @@ class LLMEvalAdapter:
         )
 
     def _calc_backoff(self, exc: Exception, attempt: int) -> float:
-        """根据异常类型计算退避时间（秒）。"""
-        is_rate_limited = (
-            isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
-        )
-        if is_rate_limited:
-            retry_after = exc.response.headers.get("Retry-After")
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429:
+            retry_after = cast(httpx.HTTPStatusError, exc).response.headers.get(
+                "Retry-After"
+            )
             if retry_after:
                 try:
                     return min(float(retry_after), 120.0)

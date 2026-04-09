@@ -71,8 +71,6 @@ _THINKING_SYSTEM_MESSAGE = (
 def _setup_proxy() -> None:
     """从 .env 加载代理配置，用于 HuggingFace 数据集下载."""
     load_dotenv()
-
-    # 检测数据集缓存标志文件，存在则启用离线模式
     from pathlib import Path
 
     dataset_flag = Path("benchmark/datasets/.download-complete")
@@ -168,20 +166,16 @@ async def _evaluate_task(
         logger.debug(f"处理任务 {task_idx + 1}/{total}: {task.task_id}")
         t_task_start = time.monotonic()
 
-        # 阶段1: LLM 调用（含 semaphore 等待 + API 请求 + 重试）
         ctx = await evaluator.evaluate(task, model, llm, system_message=system_message)
         t_after_llm = time.monotonic()
         wall_llm_duration = t_after_llm - t_task_start
-        # 实际 API 耗时（不含 semaphore 排队），从 GenerateResponse.duration 恢复
         gm = ctx.gen_metrics or {}
         api_duration = gm.get("duration", wall_llm_duration)
 
-        # 阶段2: 评分（异步，ExecutionScorer 用 async subprocess）
         t_before_score = time.monotonic()
         score_result = await scorer.ascore(ctx)
         t_after_score = time.monotonic()
         score_duration = t_after_score - t_before_score
-        # 从 CompositeScorer 结果中提取 judge LLM 实际 API 耗时，排除 semaphore 排队
         judge_api_duration = score_result.details.get("judge_duration", 0.0)
         effective_score_duration = (
             judge_api_duration if judge_api_duration > 0 else score_duration
@@ -198,7 +192,6 @@ async def _evaluate_task(
             f"任务 {task.task_id} 评分结果: score={score_result.score}, passed={score_result.passed}"
         )
 
-        # 阶段3: DB 写入
         t_before_db = time.monotonic()
         result_id = str(uuid.uuid4())[:12]
         result = EvalResult(
@@ -218,7 +211,6 @@ async def _evaluate_task(
         )
         await db.asave_result(result)
 
-        # 从 ScoringContext.gen_metrics 恢复 API 指标
         tps = gm.get("tokens_per_second", 0.0)
         await db.asave_metrics(
             ApiCallMetrics(
@@ -236,7 +228,6 @@ async def _evaluate_task(
         t_after_db = time.monotonic()
         db_duration = t_after_db - t_before_db
 
-        # 阶段4: 质量信号采集
         try:
             from benchmark.analysis.quality_signals import QualitySignalCollector
 
@@ -253,9 +244,7 @@ async def _evaluate_task(
         except Exception as exc:
             logger.warning(f"质量信号采集失败: {exc}")
 
-        # 有效执行时间 = 各阶段实际耗时之和，不含 semaphore 排队等待
         effective_total = api_duration + effective_score_duration + db_duration
-        # 输出甘特图计时日志（仅非零阶段或总耗时 > 10s 时输出）
         if effective_total > 10.0 or effective_score_duration > 1.0:
             logger.info(
                 f"GANTT | {model} | {task.task_id} | "
@@ -306,6 +295,7 @@ async def _run_evaluation(
     llm = LLMEvalAdapter(model=model)
 
     # reasoning 需要 judge LLM 实例传给 LLM Judge（其他维度不需要）
+    judge_llm = None
     if dimension == "reasoning":
         judge_model = os.getenv("JUDGE_MODEL", "opencode-go-gk/kimi-k2.5")
         judge_llm = LLMEvalAdapter(model=judge_model)
@@ -377,7 +367,6 @@ async def _run_evaluation(
                 if r["passed"]:
                     passed_count += 1
 
-        # 稳定性分析
         try:
             from benchmark.analysis.stability_analyzer import StabilityAnalyzer
 
@@ -395,7 +384,6 @@ async def _run_evaluation(
         except Exception as exc:
             logger.warning(f"稳定性分析失败: {exc}")
 
-        # probe 维度额外后处理：指纹生成 + 聚类分析
         if dimension == "probe":
             try:
                 from benchmark.analysis.fingerprint import FingerprintManager
@@ -475,6 +463,9 @@ async def _run_evaluation(
         raise
     finally:
         db.close()
+        await llm.close()
+        if judge_llm:
+            await judge_llm.close()
 
 
 def _group_by_provider(
@@ -558,7 +549,6 @@ def download(output_dir: str) -> None:
 
     from datasets import load_dataset as hf_load_dataset
 
-    # 所有需要下载的数据集定义：维度 -> (repo, split, config_name, 缓存子目录)
     datasets_spec = {
         "reasoning": [
             ("nlile/hendrycks-MATH-benchmark", "test", None, "math"),
@@ -582,7 +572,6 @@ def download(output_dir: str) -> None:
             )
             cache_dir = os.path.join(output_dir, subdir)
 
-            # 跳过已有缓存
             safe_repo = repo.replace("/", "--")
             parts = [cache_dir, safe_repo]
             if config_name:
@@ -604,7 +593,6 @@ def download(output_dir: str) -> None:
 
             console.print(f"  [green]Cached {len(rows)} rows -> {cache_file}[/green]")
 
-    # 创建标志文件
     flag_path = os.path.join(output_dir, ".download-complete")
     Path(flag_path).touch()
     console.print(
@@ -727,9 +715,6 @@ def status() -> None:
     console.print(f"  Samples: {sched.samples}")
 
 
-# ── Probe 聚类分析 ──────────────────────────────────────────────
-
-
 @cli.command("analyze")
 @click.option("--model", default=None, help="要分析的模型（不指定则分析全部）")
 @click.option("--classify", is_flag=True, default=False, help="同时运行跨模型分类")
@@ -746,7 +731,6 @@ def analyze(model: str | None, classify: bool) -> None:
     if model:
         models = [model]
     else:
-        # 扫描所有模型
         fp_dir = Path("fingerprint_db")
         if not fp_dir.exists():
             console.print("[yellow]No fingerprint data found.[/yellow]")
