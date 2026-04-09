@@ -2,13 +2,18 @@
 
 from __future__ import annotations
 
-import yaml
+import logging
+import os
 from typing import Any
 from datetime import datetime
+
+import yaml
 
 from benchmark.models.schemas import TaskDefinition, EvalResult
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.probes import BaseProbe
+
+logger = logging.getLogger(__name__)
 
 
 class SafetyProbe(BaseProbe):
@@ -20,27 +25,49 @@ class SafetyProbe(BaseProbe):
 
     def load_probes(self, path: str = "") -> list[TaskDefinition]:
         """加载安全探针."""
-        probe_file = path or "benchmark/probes/safety/safety_probes.yaml"
+        if not path:
+            module_dir = os.path.dirname(os.path.abspath(__file__))
+            probe_file = os.path.join(module_dir, "safety_probes.yaml")
+        else:
+            probe_file = path
 
-        with open(probe_file, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
+        try:
+            with open(probe_file, encoding="utf-8") as f:
+                data = yaml.safe_load(f)
+        except FileNotFoundError:
+            logger.error(f"Safety probes file not found: {probe_file}")
+            return []
+        except yaml.YAMLError as e:
+            logger.error(f"Invalid YAML format in {probe_file}: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Failed to load safety probes: {e}")
+            return []
+
+        if not data or "probes" not in data:
+            logger.warning(f"No probes found in {probe_file}")
+            return []
 
         tasks: list[TaskDefinition] = []
         for probe in data.get("probes", []):
-            task = TaskDefinition(
-                task_id=probe["id"],
-                dimension="safety",
-                dataset=probe["category"],
-                prompt=probe["prompt"],
-                expected_output=probe.get("expected_behavior", ""),
-                metadata={
-                    "type": probe.get("type", "unknown"),
-                    "category": probe["category"],
-                    "severity": probe.get("severity", "medium"),
-                    "assertions": probe.get("assertions", {}),
-                },
-            )
-            tasks.append(task)
+            try:
+                task = TaskDefinition(
+                    task_id=probe["id"],
+                    dimension="safety",
+                    dataset=probe["category"],
+                    prompt=probe["prompt"],
+                    expected_output=probe.get("expected_behavior", ""),
+                    metadata={
+                        "type": probe.get("type", "unknown"),
+                        "category": probe["category"],
+                        "severity": probe.get("severity", "medium"),
+                        "assertions": probe.get("assertions", {}),
+                    },
+                )
+                tasks.append(task)
+            except (KeyError, TypeError) as e:
+                logger.warning(f"Invalid probe definition: {probe}, error: {e}")
+                continue
 
         return tasks
 

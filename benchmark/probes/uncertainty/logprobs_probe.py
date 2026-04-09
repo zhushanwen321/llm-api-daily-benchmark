@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 from datetime import datetime
 
 from benchmark.models.schemas import TaskDefinition, EvalResult
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.probes import BaseProbe
+
+logger = logging.getLogger(__name__)
 
 
 class LogprobsProbe(BaseProbe):
@@ -81,20 +84,49 @@ class LogprobsProbe(BaseProbe):
         """Execute uncertainty probe with multiple sampling."""
         responses: list[str] = []
         durations: list[float] = []
+        errors: list[str] = []
 
-        for _ in range(3):
-            response = await adapter.agenerate(
-                prompt=probe.prompt,
-                model=model,
-                temperature=0.7,
-                max_tokens=150,
+        for i in range(3):
+            try:
+                response = await adapter.agenerate(
+                    prompt=probe.prompt,
+                    model=model,
+                    temperature=0.7,
+                    max_tokens=150,
+                )
+                responses.append(response.content)
+                durations.append(response.duration)
+            except Exception as e:
+                logger.warning(f"Sample {i + 1} failed for {model}: {e}")
+                errors.append(str(e))
+                continue
+
+        if len(responses) < 2:
+            logger.error(
+                f"Insufficient samples for {model}/{probe.task_id}: {len(responses)} samples"
             )
-            responses.append(response.content)
-            durations.append(response.duration)
+            return EvalResult(
+                result_id=f"{model}_{probe.task_id}_{datetime.now().timestamp()}",
+                run_id="",
+                task_id=probe.task_id,
+                task_content=probe.prompt,
+                model_output=responses[0]
+                if responses
+                else "[ERROR: All samples failed]",
+                functional_score=0.0,
+                final_score=0.0,
+                passed=False,
+                execution_time=sum(durations) / len(durations) if durations else 0.0,
+                created_at=datetime.now(),
+                details={
+                    "category": probe.metadata.get("category", "unknown"),
+                    "error": "Failed to collect enough samples",
+                    "sample_count": len(responses),
+                    "errors": errors,
+                },
+            )
 
-        features = self._extract_uncertainty_features(
-            responses, probe.expected_output
-        )
+        features = self._extract_uncertainty_features(responses, probe.expected_output)
 
         avg_duration = sum(durations) / len(durations)
         score = features.get("consistency_score", 0.0)
@@ -114,6 +146,8 @@ class LogprobsProbe(BaseProbe):
                 "category": probe.metadata.get("category", "unknown"),
                 "all_responses": responses,
                 "uncertainty_features": features,
+                "sample_count": len(responses),
+                "failed_samples": len(errors),
             },
         )
 
@@ -153,13 +187,24 @@ class LogprobsProbe(BaseProbe):
         combined_text = " ".join(responses).lower()
 
         uncertainty_markers = [
-            "maybe", "perhaps", "probably", "might",
-            "could be", "not sure", "uncertain", "possibly",
+            "maybe",
+            "perhaps",
+            "probably",
+            "might",
+            "could be",
+            "not sure",
+            "uncertain",
+            "possibly",
         ]
 
         confidence_markers = [
-            "certainly", "definitely", "absolutely", "sure",
-            "100%", "completely correct", "without doubt",
+            "certainly",
+            "definitely",
+            "absolutely",
+            "sure",
+            "100%",
+            "completely correct",
+            "without doubt",
         ]
 
         uncertainty_count = sum(1 for m in uncertainty_markers if m in combined_text)
@@ -171,9 +216,7 @@ class LogprobsProbe(BaseProbe):
         features["confidence_marker_count"] = confidence_count
 
         if expected:
-            correct_count = sum(
-                1 for r in responses if expected.lower() in r.lower()
-            )
+            correct_count = sum(1 for r in responses if expected.lower() in r.lower())
             features["factual_accuracy"] = correct_count / len(responses) * 100
         else:
             features["factual_accuracy"] = None
@@ -186,9 +229,7 @@ class LogprobsProbe(BaseProbe):
             features["uncertainty_score"] = 80.0
 
         if features["has_uncertainty_markers"]:
-            features["uncertainty_score"] = min(
-                features["uncertainty_score"] + 10, 100
-            )
+            features["uncertainty_score"] = min(features["uncertainty_score"] + 10, 100)
 
         return features
 
