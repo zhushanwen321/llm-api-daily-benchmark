@@ -19,6 +19,9 @@ dependencies = [
     "numpy>=1.24",
     "scikit-learn>=1.3",
     "beautifulsoup4>=4.12",
+    "plotly>=5.18",
+    "pandas>=2.0",
+    "aiosqlite>=0.19",
 ]
 
 [project.scripts]
@@ -57,4 +60,6 @@ benchmark = [
     "rsa>=4.9",
     "faker>=20.0",
     "scipy>=1.11",
+    "aiosqlite>=0.19",
+    "pandas>=2.0",
 ]

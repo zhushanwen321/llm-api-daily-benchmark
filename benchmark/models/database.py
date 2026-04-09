@@ -8,13 +8,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sqlite3
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import pandas as pd
+
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
+
+logger = logging.getLogger(__name__)
 
 
 class Database:
@@ -153,8 +158,12 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qs_result_id ON quality_signals(result_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_qs_created_at ON quality_signals(created_at)")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qs_result_id ON quality_signals(result_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qs_created_at ON quality_signals(created_at)"
+        )
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS stability_reports (
@@ -169,8 +178,12 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sr_model ON stability_reports(model)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_sr_run_id ON stability_reports(run_id)")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sr_model ON stability_reports(model)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sr_run_id ON stability_reports(run_id)"
+        )
 
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS cluster_reports (
@@ -184,7 +197,42 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_cr_model ON cluster_reports(model)")
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cr_model ON cluster_reports(model)"
+        )
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS timing_phases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                result_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                phase_name TEXT NOT NULL,
+                start_time REAL NOT NULL,
+                end_time REAL NOT NULL,
+                duration REAL NOT NULL,
+                wait_time REAL NOT NULL,
+                active_time REAL NOT NULL,
+                metadata TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_model ON timing_phases(model)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_run_id ON timing_phases(run_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_result_id ON timing_phases(result_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_phase_name ON timing_phases(phase_name)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_created_at ON timing_phases(created_at)"
+        )
 
         conn.commit()
 
@@ -464,9 +512,7 @@ class Database:
         self, model: str, days: int = 7
     ) -> list[dict]:
         """异步：获取某模型最近 N 天的质量信号。"""
-        return await asyncio.to_thread(
-            self._get_quality_signals_history, model, days
-        )
+        return await asyncio.to_thread(self._get_quality_signals_history, model, days)
 
     def _get_stability_reports(self, model: str | None = None) -> list[dict]:
         """同步：查询稳定性报告。"""
@@ -485,9 +531,7 @@ class Database:
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    async def aget_stability_reports(
-        self, model: str | None = None
-    ) -> list[dict]:
+    async def aget_stability_reports(self, model: str | None = None) -> list[dict]:
         """异步：查询稳定性报告。"""
         return await asyncio.to_thread(self._get_stability_reports, model)
 
@@ -552,8 +596,125 @@ class Database:
         columns = [desc[0] for desc in cursor.description]
         return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-    async def aget_cluster_reports(
-        self, model: str | None = None
-    ) -> list[dict]:
+    async def aget_cluster_reports(self, model: str | None = None) -> list[dict]:
         """异步：查询聚类报告。"""
         return await asyncio.to_thread(self._get_cluster_reports, model)
+
+    # ── timing_phases ──
+
+    def get_timing_phases(
+        self,
+        model: Optional[str] = None,
+        run_id: Optional[str] = None,
+        result_id: Optional[str] = None,
+        phase_name: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+        limit: int = 1000,
+    ) -> pd.DataFrame:
+        """查询耗时阶段数据。
+
+        Args:
+            model: 按模型名称筛选
+            run_id: 按运行 ID 筛选
+            result_id: 按结果 ID 筛选
+            phase_name: 按阶段名称筛选
+            start_date: 筛选此日期之后的记录
+            end_date: 筛选此日期之前的记录
+            limit: 返回记录数上限
+
+        Returns:
+            包含 timing_phases 数据的 DataFrame，metadata 列已解析为 dict
+        """
+        conn = self._get_conn()
+        query = "SELECT * FROM timing_phases WHERE 1=1"
+        params: list = []
+
+        if model:
+            query += " AND model = ?"
+            params.append(model)
+        if run_id:
+            query += " AND run_id = ?"
+            params.append(run_id)
+        if result_id:
+            query += " AND result_id = ?"
+            params.append(result_id)
+        if phase_name:
+            query += " AND phase_name = ?"
+            params.append(phase_name)
+        if start_date:
+            query += " AND created_at >= ?"
+            params.append(start_date.isoformat())
+        if end_date:
+            query += " AND created_at <= ?"
+            params.append(end_date.isoformat())
+
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        df = pd.read_sql_query(query, conn, params=params)
+
+        # 解析 metadata JSON 字段
+        if not df.empty and "metadata" in df.columns:
+
+            def safe_json_loads(x):
+                try:
+                    return json.loads(x) if x else {}
+                except json.JSONDecodeError:
+                    logger.warning("Failed to parse metadata JSON: %s", x)
+                    return {}
+
+            df["metadata"] = df["metadata"].apply(safe_json_loads)
+
+        return df
+
+    def get_timing_summaries(
+        self,
+        model: Optional[str] = None,
+        run_id: Optional[str] = None,
+        start_date: Optional[datetime] = None,
+        end_date: Optional[datetime] = None,
+    ) -> pd.DataFrame:
+        """查询耗时阶段汇总统计。
+
+        按 phase_name 分组，统计 duration/wait_time/active_time 的均值、样本数。
+
+        Args:
+            model: 按模型名称筛选
+            run_id: 按运行 ID 筛选
+            start_date: 筛选此日期之后的记录
+            end_date: 筛选此日期之前的记录
+
+        Returns:
+            包含各 phase_name 统计信息的 DataFrame
+        """
+        conn = self._get_conn()
+        query = """SELECT
+                phase_name,
+                COUNT(*) as count,
+                AVG(duration) as avg_duration,
+                AVG(wait_time) as avg_wait_time,
+                AVG(active_time) as avg_active_time,
+                MIN(duration) as min_duration,
+                MAX(duration) as max_duration,
+                SUM(duration) as total_duration
+            FROM timing_phases WHERE 1=1"""
+        params: list = []
+
+        if model:
+            query += " AND model = ?"
+            params.append(model)
+        if run_id:
+            query += " AND run_id = ?"
+            params.append(run_id)
+        if start_date:
+            query += " AND created_at >= ?"
+            params.append(start_date.isoformat())
+        if end_date:
+            query += " AND created_at <= ?"
+            params.append(end_date.isoformat())
+
+        query += " GROUP BY phase_name ORDER BY phase_name"
+
+        df = pd.read_sql_query(query, conn, params=params)
+        return df

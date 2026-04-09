@@ -18,12 +18,14 @@ class CompositeScorer(BaseScorer):
     """
 
     def __init__(self, scorers: list[tuple[float, BaseScorer]]) -> None:
-        if not scorers:
-            raise ValueError("至少需要一个子评分器")
-        total_weight = sum(w for w, _ in scorers)
+        # 过滤掉权重为 0 的 scorer
+        self._scorers = [(w, s) for w, s in scorers if w > 0]
+        if not self._scorers:
+            raise ValueError("至少需要一个子评分器（权重>0）")
+        total_weight = sum(w for w, _ in self._scorers)
         if not (abs(total_weight - 1.0) < 1e-9):
             raise ValueError(f"权重之和必须等于 1.0，当前为 {total_weight}")
-        self._scorers = scorers
+        logger.debug(f"CompositeScorer 初始化，{len(self._scorers)} 个子评分器")
 
     def score(self, ctx: ScoringContext) -> ScoreResult:
         weights: dict[str, float] = {}

@@ -22,9 +22,16 @@ from benchmark.adapters.bigcodebench_adapter import BigCodeBenchAdapter
 from benchmark.adapters.frontcode_adapter import FrontCodeAdapter
 from benchmark.adapters.probe_adapter import ProbeAdapter
 from benchmark.adapters.math_adapter import MATHAdapter
+from benchmark.core.evaluator import SingleTurnEvaluator
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.core.logging_config import setup_logging
-from benchmark.core.evaluator import SingleTurnEvaluator
+from benchmark.core.semaphore_wrapper import timed_semaphore
+from benchmark.core.timing_tracker import (
+    TimingTracker,
+    get_timing_collector,
+    start_timing_collection,
+    stop_timing_collection,
+)
 from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.backend import create_backend_composite
@@ -58,6 +65,12 @@ _THINKING_SYSTEM_MESSAGE = (
     "- 复杂任务（如系统设计、多步证明）：审慎推理，但避免重复验证已知结论\n"
     "如果已经找到答案，立即停止推理并给出最终结果。"
 )
+
+
+async def _score_with_judge_timing(scorer: Any, ctx: Any, timing: TimingTracker) -> Any:
+    """带耗时追踪的评分调用，支持 judge scorer 单独计时。"""
+    score_result = await scorer.ascore(ctx)
+    return score_result
 
 
 def _setup_proxy() -> None:
@@ -135,7 +148,12 @@ def evaluate(
     else:
         dimensions = [dimension]
 
-    asyncio.run(_run_multi_evaluation(models, dimensions, samples, debug))
+    db_path = "benchmark/data/results.db"
+    asyncio.run(start_timing_collection(db_path))
+    try:
+        asyncio.run(_run_multi_evaluation(models, dimensions, samples, debug))
+    finally:
+        asyncio.run(stop_timing_collection())
 
 
 async def _evaluate_task(
@@ -151,133 +169,170 @@ async def _evaluate_task(
     debug: bool,
     system_message: str | None = None,
     dimension: str = "",
+    semaphore: asyncio.Semaphore | None = None,
 ) -> dict[str, Any]:
-    """单个 task 的异步评测协程。"""
-    try:
-        logger.debug(f"处理任务 {task_idx + 1}/{total}: {task.task_id}")
-        t_task_start = time.monotonic()
+    """单个 task 的异步评测协程，支持耗时追踪。"""
+    timing = TimingTracker()
+    result_id = str(uuid.uuid4())[:12]
 
-        ctx = await evaluator.evaluate(task, model, llm, system_message=system_message)
-        t_after_llm = time.monotonic()
-        wall_llm_duration = t_after_llm - t_task_start
-        gm = ctx.gen_metrics or {}
-        api_duration = gm.get("duration", wall_llm_duration)
+    async def _do_evaluate() -> dict[str, Any]:
+        """实际评测逻辑（不含 semaphore 等待）。"""
+        nonlocal result_id
+        try:
+            logger.debug(f"处理任务 {task_idx + 1}/{total}: {task.task_id}")
 
-        t_before_score = time.monotonic()
-        score_result = await scorer.ascore(ctx)
-        t_after_score = time.monotonic()
-        score_duration = t_after_score - t_before_score
-        judge_api_duration = score_result.details.get("judge_duration", 0.0)
-        effective_score_duration = (
-            judge_api_duration if judge_api_duration > 0 else score_duration
-        )
-        if score_duration > 1.0:
-            logger.warning(
-                f"PERF | {model} | {task.task_id} | "
-                f"score_block={score_duration:.1f}s "
-                f"(judge_api={judge_api_duration:.1f}s, "
-                f"type={type(scorer).__name__})"
+            # Phase 1: LLM request
+            timing.start_phase("llm_request")
+            ctx = await evaluator.evaluate(
+                task, model, llm, system_message=system_message
+            )
+            timing.end_phase("llm_request")
+            gm = ctx.gen_metrics or {}
+            api_duration = gm.get("duration", 0.0)
+
+            # Phase 2: Score calculation
+            timing.start_phase("score_calculation")
+            score_result = await _score_with_judge_timing(scorer, ctx, timing)
+            timing.end_phase("score_calculation")
+            score_duration = score_result.details.get("judge_duration", 0.0)
+            if score_duration > 1.0:
+                logger.warning(
+                    f"PERF | {model} | {task.task_id} | "
+                    f"score_block={score_duration:.1f}s "
+                    f"(judge_api={score_duration:.1f}s, "
+                    f"type={type(scorer).__name__})"
+                )
+
+            logger.debug(
+                f"任务 {task.task_id} 评分结果: score={score_result.score}, passed={score_result.passed}"
             )
 
-        logger.debug(
-            f"任务 {task.task_id} 评分结果: score={score_result.score}, passed={score_result.passed}"
-        )
-
-        t_before_db = time.monotonic()
-        result_id = str(uuid.uuid4())[:12]
-        result = EvalResult(
-            result_id=result_id,
-            run_id=run_id,
-            task_id=task.task_id,
-            task_content=task.prompt,
-            model_output=ctx.raw_output,
-            model_think=ctx.reasoning_content,
-            model_answer=ctx.model_answer,
-            functional_score=score_result.score,
-            final_score=score_result.score,
-            passed=score_result.passed,
-            details=score_result.details,
-            execution_time=api_duration,
-            created_at=datetime.now(),
-        )
-        await db.asave_result(result)
-
-        tps = gm.get("tokens_per_second", 0.0)
-        await db.asave_metrics(
-            ApiCallMetrics(
+            # Phase 3: DB write
+            timing.start_phase("db_write")
+            result = EvalResult(
                 result_id=result_id,
-                prompt_tokens=gm.get("prompt_tokens", 0),
-                completion_tokens=gm.get("completion_tokens", 0),
-                reasoning_tokens=gm.get("reasoning_tokens", 0),
-                reasoning_content=ctx.reasoning_content,
-                duration=api_duration,
-                tokens_per_second=tps,
-                ttft_content=gm.get("ttft_content", 0.0),
+                run_id=run_id,
+                task_id=task.task_id,
+                task_content=task.prompt,
+                model_output=ctx.raw_output,
+                model_think=ctx.reasoning_content,
+                model_answer=ctx.model_answer,
+                functional_score=score_result.score,
+                final_score=score_result.score,
+                passed=score_result.passed,
+                details=score_result.details,
+                execution_time=api_duration,
                 created_at=datetime.now(),
             )
-        )
-        t_after_db = time.monotonic()
-        db_duration = t_after_db - t_before_db
+            await db.asave_result(result)
 
-        try:
-            from benchmark.analysis.quality_signals import QualitySignalCollector
-
-            qsc = QualitySignalCollector(db=db, model=model)
-            await qsc.collect_and_save(
-                result_id=result_id,
-                raw_output=ctx.raw_output,
-                reasoning_content=ctx.reasoning_content,
-                gen_metrics=gm,
-                finish_reason=gm.get("finish_reason", ""),
-                task=task,
-                dimension=dimension,
+            tps = gm.get("tokens_per_second", 0.0)
+            await db.asave_metrics(
+                ApiCallMetrics(
+                    result_id=result_id,
+                    prompt_tokens=gm.get("prompt_tokens", 0),
+                    completion_tokens=gm.get("completion_tokens", 0),
+                    reasoning_tokens=gm.get("reasoning_tokens", 0),
+                    reasoning_content=ctx.reasoning_content,
+                    duration=api_duration,
+                    tokens_per_second=tps,
+                    ttft_content=gm.get("ttft_content", 0.0),
+                    created_at=datetime.now(),
+                )
             )
+            timing.end_phase("db_write")
+
+            # Phase 4: Quality signals
+            timing.start_phase("quality_signals")
+            try:
+                from benchmark.analysis.quality_signals import QualitySignalCollector
+
+                qsc = QualitySignalCollector(db=db, model=model)
+                await qsc.collect_and_save(
+                    result_id=result_id,
+                    raw_output=ctx.raw_output,
+                    reasoning_content=ctx.reasoning_content,
+                    gen_metrics=gm,
+                    finish_reason=gm.get("finish_reason", ""),
+                    task=task,
+                    dimension=dimension,
+                )
+            except Exception as exc:
+                logger.warning(f"质量信号采集失败: {exc}")
+            timing.end_phase("quality_signals")
+
+            effective_total = timing.get_total_duration()
+            if effective_total > 10.0 or score_duration > 1.0:
+                logger.info(
+                    f"GANTT | {model} | {task.task_id} | "
+                    f"llm={api_duration:.1f}s | "
+                    f"score={score_duration:.1f}s | "
+                    f"total={effective_total:.1f}s"
+                )
+
+            status_icon = (
+                "[green]PASS[/green]" if score_result.passed else "[red]FAIL[/red]"
+            )
+            console.print(
+                f"  [{task_idx + 1}/{total}] {task.task_id} | "
+                f"Score: {score_result.score:.0f} | {status_icon} | "
+                f"Time: {effective_total:.1f}s | "
+                f"TTFT-R: {gm.get('ttft', 0.0):.2f}s | "
+                f"TTFT-C: {gm.get('ttft_content', 0.0):.2f}s | "
+                f"Speed: {tps:.1f} tok/s"
+            )
+
+            return {
+                "score": score_result.score,
+                "passed": score_result.passed,
+                "task_id": task.task_id,
+            }
         except Exception as exc:
-            logger.warning(f"质量信号采集失败: {exc}")
-
-        effective_total = api_duration + effective_score_duration + db_duration
-        if effective_total > 10.0 or effective_score_duration > 1.0:
-            logger.info(
-                f"GANTT | {model} | {task.task_id} | "
-                f"llm={api_duration:.1f}s | "
-                f"score={effective_score_duration:.1f}s | "
-                f"db={db_duration:.3f}s | "
-                f"total={effective_total:.1f}s"
+            logger.error(f"任务 {getattr(task, 'task_id', task_idx)} 失败: {exc}")
+            status_msg = f"[red]ERROR: {type(exc).__name__}: {exc}[/red]"
+            console.print(
+                f"  [{task_idx + 1}/{total}] {getattr(task, 'task_id', '?')} | {status_msg}"
             )
+            return {
+                "error": exc,
+                "task_id": getattr(task, "task_id", str(task_idx)),
+                "passed": False,
+                "score": 0.0,
+            }
 
-        status_icon = (
-            "[green]PASS[/green]" if score_result.passed else "[red]FAIL[/red]"
-        )
-        console.print(
-            f"  [{task_idx + 1}/{total}] {task.task_id} | "
-            f"Score: {score_result.score:.0f} | {status_icon} | "
-            f"Time: {effective_total:.1f}s | "
-            f"TTFT-R: {gm.get('ttft', 0.0):.2f}s | "
-            f"TTFT-C: {gm.get('ttft_content', 0.0):.2f}s | "
-            f"Speed: {tps:.1f} tok/s"
+    if semaphore is not None:
+        async with timed_semaphore(semaphore, timing, "semaphore_wait", task.task_id):
+            result = await _do_evaluate()
+    else:
+        result = await _do_evaluate()
+
+    # 异步收集耗时数据
+    try:
+        timing_collector = get_timing_collector()
+        timing_collector.collect(timing, result_id, model, task.task_id, run_id=run_id)
+    except RuntimeError:
+        logger.debug("Timing collector not initialized, skipping timing collection")
+
+    # 打印甘特图日志
+    gantt_data = timing.to_gantt_data()
+    if gantt_data:
+        logger.info(
+            f"TIMING_GANTT | {model} | task={task.task_id} | "
+            f"total={timing.get_total_duration():.3f}s | "
+            f"wait={timing.get_wait_duration():.3f}s | "
+            f"active={timing.get_active_duration():.3f}s | "
+            f"phases={','.join(p['phase'] for p in gantt_data)}"
         )
 
-        return {
-            "score": score_result.score,
-            "passed": score_result.passed,
-            "task_id": task.task_id,
-        }
-    except Exception as exc:
-        logger.error(f"任务 {getattr(task, 'task_id', task_idx)} 失败: {exc}")
-        status_msg = f"[red]ERROR: {type(exc).__name__}: {exc}[/red]"
-        console.print(
-            f"  [{task_idx + 1}/{total}] {getattr(task, 'task_id', '?')} | {status_msg}"
-        )
-        return {
-            "error": exc,
-            "task_id": getattr(task, "task_id", str(task_idx)),
-            "passed": False,
-            "score": 0.0,
-        }
+    return result
 
 
 async def _run_evaluation(
-    model: str, dimension: str, samples: int, debug: bool
+    model: str,
+    dimension: str,
+    samples: int,
+    debug: bool,
+    semaphore: asyncio.Semaphore | None = None,
 ) -> None:
     """异步评测主流程，使用 asyncio.gather 并发执行所有 task。"""
     adapter_cls, scorer_factory, evaluator_cls = DIMENSION_REGISTRY[dimension]
@@ -286,11 +341,19 @@ async def _run_evaluation(
     llm = LLMEvalAdapter(model=model)
 
     # reasoning 需要 judge LLM 实例传给 LLM Judge（其他维度不需要）
+    # 可以通过 DISABLE_JUDGE=true 禁用 judge
     judge_llm = None
     if dimension == "reasoning":
-        judge_model = os.getenv("JUDGE_MODEL", "opencode-go-gk/kimi-k2.5")
-        judge_llm = LLMEvalAdapter(model=judge_model)
-        scorer = CompositeScorer(scorer_factory(llm=judge_llm))
+        disable_judge = os.getenv("DISABLE_JUDGE", "false").lower() == "true"
+        if disable_judge:
+            logger.info(
+                "Judge disabled by DISABLE_JUDGE=true, using non-judge scoring only"
+            )
+            scorer = CompositeScorer(scorer_factory())
+        else:
+            judge_model = os.getenv("JUDGE_MODEL", "opencode-go-gk/kimi-k2.5")
+            judge_llm = LLMEvalAdapter(model=judge_model)
+            scorer = CompositeScorer(scorer_factory(llm=judge_llm))
     else:
         scorer = CompositeScorer(scorer_factory())
 
@@ -337,6 +400,7 @@ async def _run_evaluation(
                 debug,
                 system_message=_THINKING_SYSTEM_MESSAGE,
                 dimension=dimension,
+                semaphore=semaphore,
             )
             for i, task in enumerate(tasks)
         ]
@@ -481,13 +545,11 @@ async def _run_provider_group(
     max_concurrency = _get_provider_concurrency(tasks[0][0])
     semaphore = asyncio.Semaphore(max_concurrency)
 
-    async def run_with_semaphore(model: str, dim: str) -> None:
-        async with semaphore:
-            await _run_evaluation(model, dim, samples, debug)
-
-    results = await asyncio.gather(
-        *[run_with_semaphore(m, d) for m, d in tasks], return_exceptions=True
-    )
+    coros = [
+        _run_evaluation(model, dim, samples, debug, semaphore=semaphore)
+        for model, dim in tasks
+    ]
+    results = await asyncio.gather(*coros, return_exceptions=True)
 
     for i, result in enumerate(results):
         if isinstance(result, Exception):
