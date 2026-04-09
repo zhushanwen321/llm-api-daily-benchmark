@@ -65,18 +65,12 @@ class CompositeScorer(BaseScorer):
         """并行执行所有子 scorer。"""
         weights: dict[str, float] = {}
         errors: dict[str, str] = {}
-        judge_duration: float = 0.0
 
         async def _run_one(weight: float, scorer: BaseScorer) -> tuple[str, float]:
-            nonlocal judge_duration
             name = scorer.get_metric_name()
             weights[name] = weight
             try:
                 result = await scorer.ascore(ctx)
-                # 收集子 scorer 中的 judge LLM 实际 API 耗时
-                jd = result.details.get("judge_duration", 0.0)
-                if jd > 0:
-                    judge_duration = max(judge_duration, jd)
                 return name, result.score
             except Exception as exc:
                 logger.warning("子评分器 %s 异常，默认 100 分: %s", name, exc)
@@ -94,8 +88,6 @@ class CompositeScorer(BaseScorer):
             "composite.weights": weights,
             "composite.scores": scores,
         }
-        if judge_duration > 0:
-            details["judge_duration"] = judge_duration
         if errors:
             details["composite.errors"] = errors
 
