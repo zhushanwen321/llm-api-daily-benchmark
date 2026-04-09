@@ -5,11 +5,13 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class TaskDefinition(BaseModel):
     """评测题目定义。"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     task_id: str
     dimension: str  # reasoning, backend-dev
@@ -33,14 +35,14 @@ class GenerateResponse(BaseModel):
     """LLM API 调用响应，包含文本和 token 用量。"""
 
     content: str
-    reasoning_content: str = ""   # 推理过程（从 API reasoning_content 字段获取）
+    reasoning_content: str = ""  # 推理过程（从 API reasoning_content 字段获取）
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    reasoning_tokens: int = 0     # 推理 token 数
+    reasoning_tokens: int = 0  # 推理 token 数
     duration: float = 0.0
     tokens_per_second: float = 0.0
-    ttft: float = 0.0             # 首 token 延迟（TTFT-R）
-    ttft_content: float = 0.0     # 首 content token 延迟（TTFT-C）
+    ttft: float = 0.0  # 首 token 延迟（TTFT-R）
+    ttft_content: float = 0.0  # 首 content token 延迟（TTFT-C）
     truncated: bool = False
     finish_reason: str = ""
 
@@ -60,6 +62,8 @@ class EvalRun(BaseModel):
 
 class EvalResult(BaseModel):
     """单题评测结果。"""
+
+    model_config = ConfigDict(protected_namespaces=())
 
     result_id: str
     run_id: str
@@ -94,11 +98,15 @@ class ApiCallMetrics(BaseModel):
 class ScoringContext(BaseModel):
     """统一的评分上下文."""
 
+    model_config = ConfigDict(protected_namespaces=())
+
     model_answer: str  # 解析后的答案
     raw_output: str  # 模型原始输出
     expected: str  # 期望输出
     task: TaskDefinition  # 任务定义
     reasoning_content: str = ""  # 推理过程（从 API reasoning_content 获取）
-    gen_metrics: dict | None = None  # API 调用指标（prompt_tokens, completion_tokens, ttft 等）
+    gen_metrics: dict | None = (
+        None  # API 调用指标（prompt_tokens, completion_tokens, ttft 等）
+    )
     execution_trace: list[dict] | None = None  # 工具调用记录（未来扩展用）
     execution_metrics: dict | None = None  # 执行指标（未来扩展用）
