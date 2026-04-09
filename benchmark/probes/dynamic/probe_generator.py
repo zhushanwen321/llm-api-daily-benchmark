@@ -109,8 +109,7 @@ class VariationStrategy:
     def apply_template_variation(
         template: ProbeTemplate, seed: int | None = None
     ) -> str:
-        if seed is not None:
-            random.seed(seed)
+        rng = random.Random(seed) if seed is not None else random
 
         prompt = template.base_prompt
         for rule in template.variation_rules:
@@ -118,7 +117,7 @@ class VariationStrategy:
             values = rule.get("values", [])
             if values:
                 placeholder = "{" + rule_type + "}"
-                selected = random.choice(values)
+                selected = rng.choice(values)
                 prompt = prompt.replace(placeholder, selected)
 
         return prompt

@@ -1,5 +1,6 @@
 from benchmark.probes.dynamic.adaptive_baseline import (
     AdaptiveBaselineManager,
+    AnomalyRecord,
     BaselineConfig,
     HistoricalDataAnalyzer,
     ScoreBaseline,
@@ -14,6 +15,7 @@ from benchmark.probes.dynamic.probe_generator import (
 
 __all__ = [
     "AdaptiveBaselineManager",
+    "AnomalyRecord",
     "BaselineConfig",
     "DynamicProbeGenerator",
     "GeneratedProbe",

@@ -252,8 +252,10 @@ class AdaptiveBaselineManager:
 
             # 更新标准差
             if old.sample_count > 1:
-                new_std = ((1 - alpha) * old.expected_std ** 2 +
-                          alpha * (new_value - new_mean) ** 2) ** 0.5
+                new_std = (
+                    (1 - alpha) * old.expected_std**2
+                    + alpha * (new_value - new_mean) ** 2
+                ) ** 0.5
             else:
                 new_std = abs(new_value - new_mean)
 
@@ -295,7 +297,9 @@ class AdaptiveBaselineManager:
 
         # 计算偏离程度
         if baseline.expected_std > 0:
-            deviation = (observed_value - baseline.expected_mean) / baseline.expected_std
+            deviation = (
+                observed_value - baseline.expected_mean
+            ) / baseline.expected_std
         else:
             deviation = 0.0 if observed_value == baseline.expected_mean else 10.0
 
@@ -349,12 +353,11 @@ class AdaptiveBaselineManager:
     def get_health_report(self) -> dict[str, Any]:
         """生成健康报告."""
         total_metrics = len(self._baselines)
-        low_confidence = sum(
-            1 for b in self._baselines.values() if b.confidence < 0.5
-        )
+        low_confidence = sum(1 for b in self._baselines.values() if b.confidence < 0.5)
 
         recent_anomalies = [
-            a for a in self._anomaly_history
+            a
+            for a in self._anomaly_history
             if a.timestamp > datetime.now() - timedelta(days=7)
         ]
 
@@ -393,6 +396,14 @@ class AdaptiveBaselineManager:
     def import_baselines(self, data: dict[str, Any]) -> None:
         """导入基线配置."""
         for name, b_data in data.items():
+            try:
+                last_updated_str = b_data.get(
+                    "last_updated", datetime.now().isoformat()
+                )
+                last_updated = datetime.fromisoformat(last_updated_str)
+            except (ValueError, TypeError):
+                last_updated = datetime.now()
+
             self._baselines[name] = ScoreBaseline(
                 metric_name=name,
                 expected_mean=b_data.get("expected_mean", 0.0),
@@ -400,7 +411,7 @@ class AdaptiveBaselineManager:
                 min_acceptable=b_data.get("min_acceptable", 0.0),
                 max_acceptable=b_data.get("max_acceptable", 100.0),
                 sample_count=b_data.get("sample_count", 0),
-                last_updated=datetime.fromisoformat(b_data.get("last_updated", datetime.now().isoformat())),
+                last_updated=last_updated,
                 trend=b_data.get("trend", "stable"),
                 confidence=b_data.get("confidence", 0.0),
             )
