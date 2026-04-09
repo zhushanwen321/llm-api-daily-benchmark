@@ -22,7 +22,6 @@ from benchmark.adapters.bigcodebench_adapter import BigCodeBenchAdapter
 from benchmark.adapters.frontcode_adapter import FrontCodeAdapter
 from benchmark.adapters.probe_adapter import ProbeAdapter
 from benchmark.adapters.math_adapter import MATHAdapter
-from benchmark.adapters.mmlu_pro_adapter import MMLUProAdapter
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.core.logging_config import setup_logging
 from benchmark.core.evaluator import SingleTurnEvaluator
@@ -34,7 +33,6 @@ from benchmark.scorers.execution_scorer import ExecutionScorer
 from benchmark.scorers.frontend import create_frontend_composite
 from benchmark.scorers.probe_scorer import ProbeScorer
 from benchmark.scorers.reasoning import create_reasoning_composite
-from benchmark.scorers.system_architecture import create_sysarch_composite
 
 console = Console()
 logger = logging.getLogger(__name__)
@@ -42,11 +40,6 @@ logger = logging.getLogger(__name__)
 DIMENSION_REGISTRY: dict[str, tuple] = {
     "reasoning": (MATHAdapter, create_reasoning_composite, SingleTurnEvaluator),
     "backend-dev": (BigCodeBenchAdapter, create_backend_composite, SingleTurnEvaluator),
-    "system-architecture": (
-        MMLUProAdapter,
-        create_sysarch_composite,
-        SingleTurnEvaluator,
-    ),
     "frontend-dev": (FrontCodeAdapter, create_frontend_composite, SingleTurnEvaluator),
     "probe": (ProbeAdapter, lambda: [(1.0, ProbeScorer())], SingleTurnEvaluator),
 }
@@ -54,7 +47,6 @@ DIMENSION_REGISTRY: dict[str, tuple] = {
 DATASET_REGISTRY: dict[str, str] = {
     "reasoning": "math",
     "backend-dev": "bigcodebench",
-    "system-architecture": "mmlu-pro",
     "frontend-dev": "frontcode",
     "probe": "probe",
 }
@@ -113,7 +105,6 @@ def cli(ctx: click.Context, debug: bool) -> None:
         [
             "reasoning",
             "backend-dev",
-            "system-architecture",
             "frontend-dev",
             "probe",
             "all",
@@ -531,9 +522,6 @@ def list_datasets() -> None:
     console.print("[bold]Available datasets:[/bold]")
     console.print("  [cyan]reasoning:[/cyan]           MATH (Level 3-5, 15 tasks)")
     console.print("  [cyan]backend-dev:[/cyan]        BigCodeBench-Hard (15 tasks)")
-    console.print(
-        "  [cyan]system-architecture:[/cyan] MMLU-Pro (CS/Math/Physics, 15 tasks)"
-    )
     console.print("  [cyan]frontend-dev:[/cyan]       FrontCode (自建前端评测)")
 
 
@@ -555,9 +543,6 @@ def download(output_dir: str) -> None:
         ],
         "backend-dev": [
             ("bigcode/bigcodebench-hard", "v0.1.0_hf", None, "bigcodebench"),
-        ],
-        "system-architecture": [
-            ("TIGER-Lab/MMLU-Pro", "test", None, "mmlu_pro"),
         ],
     }
 
