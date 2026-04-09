@@ -149,11 +149,15 @@ def evaluate(
         dimensions = [dimension]
 
     db_path = "benchmark/data/results.db"
-    asyncio.run(start_timing_collection(db_path))
-    try:
-        asyncio.run(_run_multi_evaluation(models, dimensions, samples, debug))
-    finally:
-        asyncio.run(stop_timing_collection())
+
+    async def _run_evaluation_with_timing():
+        await start_timing_collection(db_path)
+        try:
+            await _run_multi_evaluation(models, dimensions, samples, debug)
+        finally:
+            await stop_timing_collection()
+
+    asyncio.run(_run_evaluation_with_timing())
 
 
 async def _evaluate_task(
