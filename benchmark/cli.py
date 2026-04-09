@@ -241,6 +241,7 @@ async def _evaluate_task(
                     reasoning_content=ctx.reasoning_content,
                     duration=api_duration,
                     tokens_per_second=tps,
+                    ttft=gm.get("ttft", 0.0),
                     ttft_content=gm.get("ttft_content", 0.0),
                     created_at=datetime.now(),
                 )

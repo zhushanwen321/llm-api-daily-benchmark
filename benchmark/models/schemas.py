@@ -92,6 +92,7 @@ class ApiCallMetrics(BaseModel):
     reasoning_content: str = ""
     duration: float = 0.0
     tokens_per_second: float = 0.0
+    ttft: float = 0.0  # 首 token 延迟（TTFT-R）
     ttft_content: float = 0.0
     created_at: datetime
 

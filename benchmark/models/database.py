@@ -93,6 +93,17 @@ class Database:
         if metrics_needs_rebuild:
             cursor.execute("DROP TABLE IF EXISTS api_call_metrics")
 
+        # 检查 api_call_metrics 是否缺少 ttft 列，使用 ALTER TABLE 添加
+        try:
+            cursor.execute("SELECT ttft FROM api_call_metrics LIMIT 1")
+        except sqlite3.OperationalError:
+            try:
+                cursor.execute(
+                    "ALTER TABLE api_call_metrics ADD COLUMN ttft REAL NOT NULL DEFAULT 0"
+                )
+            except sqlite3.OperationalError:
+                pass
+
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS eval_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -139,6 +150,7 @@ class Database:
                 reasoning_content TEXT DEFAULT '',
                 duration REAL NOT NULL DEFAULT 0,
                 tokens_per_second REAL NOT NULL DEFAULT 0,
+                ttft REAL NOT NULL DEFAULT 0,
                 ttft_content REAL NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 FOREIGN KEY (result_id) REFERENCES eval_results(result_id)
@@ -311,8 +323,8 @@ class Database:
             """INSERT INTO api_call_metrics
                (result_id, prompt_tokens, completion_tokens,
                 reasoning_tokens, reasoning_content,
-                duration, tokens_per_second, ttft_content, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                duration, tokens_per_second, ttft, ttft_content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 metrics.result_id,
                 metrics.prompt_tokens,
@@ -321,6 +333,7 @@ class Database:
                 metrics.reasoning_content,
                 metrics.duration,
                 metrics.tokens_per_second,
+                metrics.ttft,
                 metrics.ttft_content,
                 metrics.created_at.isoformat(),
             ),

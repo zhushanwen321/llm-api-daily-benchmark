@@ -320,6 +320,14 @@ def render_overview_page() -> None:
                                 "TTFT-C",
                                 f"{ttft_content:.2f}s",
                             )
+                        ttft = (
+                            metrics_row["ttft"] if "ttft" in metrics_row.keys() else 0.0
+                        )
+                        if ttft > 0:
+                            st.metric(
+                                "TTFT-R",
+                                f"{ttft:.2f}s",
+                            )
 
                 with col2:
                     st.text_area(
@@ -343,13 +351,27 @@ def render_overview_page() -> None:
                                 label_visibility="collapsed",
                             )
 
+                    # 展示正确答案
+                    expected_content = detail.get("expected_output", "") or ""
+                    if expected_content:
+                        st.markdown("**Expected Answer**")
+                        st.text_area(
+                            "Expected",
+                            value=expected_content,
+                            height=100,
+                            disabled=True,
+                            label_visibility="collapsed",
+                        )
+
                     # 展示最终答案
                     answer_content = detail.get("model_answer", "") or ""
+                    st.markdown("**Model Answer**")
                     st.text_area(
                         "Answer",
                         value=answer_content,
                         height=300,
                         disabled=True,
+                        label_visibility="collapsed",
                     )
 
                 detail_raw = detail.get("details")
@@ -409,6 +431,7 @@ def get_results(
             r.passed,
             r.execution_time,
             m.tokens_per_second,
+            m.ttft,
             m.ttft_content,
             m.reasoning_tokens,
             m.prompt_tokens,
