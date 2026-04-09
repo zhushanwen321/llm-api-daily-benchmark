@@ -16,38 +16,53 @@ from benchmark.models.schemas import TaskDefinition
 class MATHAdapter(DatasetAdapter):
     """MATH 适配器，选择 Level 3-5 的题目，覆盖多个学科，共 15 题."""
 
+    _CONFIGS = [
+        "algebra",
+        "counting_and_probability",
+        "geometry",
+        "intermediate_algebra",
+        "number_theory",
+        "precalculus",
+    ]
+
     def load(self, path: str = "") -> List[TaskDefinition]:
         cache_dir = path or os.path.join("benchmark", "datasets", "math")
-        dataset = load_hf_dataset(
-            "nlile/hendrycks-MATH-benchmark",
-            split="test",
-            cache_dir=cache_dir,
-        )
 
-        # 筛选 Level 3-5 的题目
-        eligible = [
-            item for item in dataset
-            if item["level"] >= 3
-        ]
+        all_items: list[dict] = []
+        for config in self._CONFIGS:
+            rows = load_hf_dataset(
+                "EleutherAI/hendrycks_math",
+                split="test",
+                cache_dir=cache_dir,
+                config_name=config,
+            )
+            for row in rows:
+                row["_config"] = config
+            all_items.extend(rows)
 
-        # 按学科分组，确保覆盖度
+        def _parse_level(item: dict) -> int:
+            raw = item.get("level", "")
+            if isinstance(raw, int):
+                return raw
+            return int(raw.replace("Level ", ""))
+
+        eligible = [item for item in all_items if _parse_level(item) >= 3]
+
         rng = random.Random(42)
         by_subject: dict[str, list] = {}
         for item in eligible:
-            subj = item["subject"]
+            subj = item.get("type", "unknown")
             by_subject.setdefault(subj, []).append(item)
 
         selected = []
         subjects = list(by_subject.keys())
         rng.shuffle(subjects)
 
-        # 每个学科至少选 1 题
         for subj in subjects:
             pool = by_subject[subj]
             rng.shuffle(pool)
             selected.append(pool[0])
 
-        # 补足到 15 题
         remaining = []
         for subj in subjects:
             remaining.extend(by_subject[subj][1:])
@@ -60,16 +75,19 @@ class MATHAdapter(DatasetAdapter):
 
         tasks = []
         for idx, item in enumerate(selected[:15]):
+            level_int = _parse_level(item)
             task = TaskDefinition(
-                task_id=f"math_{item['unique_id']}",
+                task_id=f"math_{idx}",
                 dimension="reasoning",
                 dataset="math",
-                prompt=build_structured_prompt(item["problem"], "reasoning", dataset="math"),
-                expected_output=item["answer"],
+                prompt=build_structured_prompt(
+                    item["problem"], "reasoning", dataset="math"
+                ),
+                expected_output=item["solution"],
                 metadata={
-                    "level": item["level"],
-                    "subject": item["subject"],
-                    "source": "nlile/hendrycks-MATH-benchmark",
+                    "level": level_int,
+                    "subject": item.get("type", "unknown"),
+                    "source": "EleutherAI/hendrycks_math",
                 },
             )
             tasks.append(task)
