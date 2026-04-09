@@ -217,6 +217,7 @@ async def _evaluate_task(
                 model_output=ctx.raw_output,
                 model_think=ctx.reasoning_content,
                 model_answer=ctx.model_answer,
+                expected_output=task.expected_output,  # 保存期望答案
                 functional_score=score_result.score,
                 final_score=score_result.score,
                 passed=score_result.passed,

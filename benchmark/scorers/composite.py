@@ -49,6 +49,7 @@ class CompositeScorer(BaseScorer):
         details: dict = {
             "composite.weights": weights,
             "composite.scores": scores,
+            "expected": ctx.expected,  # 存储期望答案便于查看
         }
         if errors:
             details["composite.errors"] = errors

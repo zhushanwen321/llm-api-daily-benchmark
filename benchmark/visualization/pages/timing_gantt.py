@@ -139,7 +139,7 @@ def render_timing_gantt_page() -> None:
     with col3:
         date_range = st.date_input(
             "Date Range",
-            value=(None, None),
+            value=None,
             help="Select start and end dates",
         )
 

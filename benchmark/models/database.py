@@ -71,6 +71,13 @@ class Database:
         except sqlite3.OperationalError:
             needs_rebuild = True
 
+        # 检查 eval_results 是否缺少 expected_output 列，若缺少则 drop 重建
+        if not needs_rebuild:
+            try:
+                cursor.execute("SELECT expected_output FROM eval_results LIMIT 1")
+            except sqlite3.OperationalError:
+                needs_rebuild = True
+
         if needs_rebuild:
             cursor.execute("DROP TABLE IF EXISTS api_call_metrics")
             cursor.execute("DROP TABLE IF EXISTS eval_results")
@@ -110,6 +117,7 @@ class Database:
                 model_output TEXT,
                 model_think TEXT DEFAULT '',
                 model_answer TEXT DEFAULT '',
+                expected_output TEXT DEFAULT '',  -- 期望答案，用于评判 AI 回答是否正确
                 functional_score REAL NOT NULL DEFAULT 0,
                 quality_score REAL NOT NULL DEFAULT 0,
                 final_score REAL NOT NULL DEFAULT 0,
@@ -271,10 +279,10 @@ class Database:
         conn.execute(
             """INSERT INTO eval_results
                (result_id, run_id, task_id, task_content, model_output,
-                model_think, model_answer,
+                model_think, model_answer, expected_output,
                 functional_score, quality_score, final_score, passed,
                 details, execution_time, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 result.result_id,
                 result.run_id,
@@ -283,6 +291,7 @@ class Database:
                 result.model_output,
                 result.model_think,
                 result.model_answer,
+                result.expected_output,
                 result.functional_score,
                 result.quality_score,
                 result.final_score,

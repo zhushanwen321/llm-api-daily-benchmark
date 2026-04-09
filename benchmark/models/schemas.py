@@ -72,6 +72,7 @@ class EvalResult(BaseModel):
     model_output: str
     model_think: str = ""
     model_answer: str = ""
+    expected_output: str = ""  # 期望答案，用于评判 AI 回答是否正确
     functional_score: float
     quality_score: float = 0.0
     final_score: float
