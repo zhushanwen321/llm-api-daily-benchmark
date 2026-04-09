@@ -13,34 +13,33 @@ import streamlit as st
 from benchmark.models.database import Database
 
 
-# Phase 颜色映射
+# 暗色主题配色 - 更鲜明的颜色
 PHASE_COLORS: dict[str, str] = {
-    "semaphore_wait": "#FF6B6B",
-    "llm_request": "#4ECDC4",
-    "judge_request": "#45B7D1",
-    "score_calculation": "#96CEB4",
-    "db_write": "#FFEAA7",
-    "quality_signals": "#DFE6E9",
+    "semaphore_wait": "#ff6b6b",
+    "llm_request": "#4ecdc4",
+    "score_calculation": "#96ceb4",
+    "db_write": "#ffeaa7",
+    "quality_signals": "#74b9ff",
 }
+
+# 暗色主题配色方案
+DARK_BG = "#0e1117"
+DARK_BG_SECONDARY = "#1e2129"
+TEXT_COLOR = "#fafafa"
+TEXT_COLOR_SECONDARY = "#b0b3b8"
+GRID_COLOR = "#2d3139"
 
 
 def get_default_color() -> str:
-    """其他 phase 使用的默认颜色."""
-    return "#95A5A6"
+    return "#95a5a6"
 
 
 @st.cache_resource
 def get_db() -> Database:
-    """获取数据库连接（缓存）."""
     return Database()
 
 
 def get_models(db: Database) -> list[str]:
-    """从数据库获取唯一模型列表.
-
-    Returns:
-        按字母排序的模型名称列表
-    """
     df = db.get_timing_phases(limit=10000)
     if df.empty:
         return []
@@ -49,27 +48,23 @@ def get_models(db: Database) -> list[str]:
 
 
 def create_gantt_chart(df: pd.DataFrame) -> go.Figure:
-    """创建交互式甘特图.
-
-    Args:
-        df: 包含 timing_phases 数据的 DataFrame
-
-    Returns:
-        plotly.graph_objects.Figure 对象
-    """
+    """创建交互式甘特图（适配暗色主题）."""
     if df.empty:
-        return go.Figure()
+        fig = go.Figure()
+        fig.update_layout(
+            paper_bgcolor=DARK_BG,
+            plot_bgcolor=DARK_BG,
+            font_color=TEXT_COLOR,
+        )
+        return fig
 
-    # 为每个 phase 创建条形
     phases = df["phase_name"].unique()
-
     fig = go.Figure()
 
     for phase in phases:
         phase_df = df[df["phase_name"] == phase].copy()
         color = PHASE_COLORS.get(phase, get_default_color())
 
-        # 计算悬停文本
         hover_texts = []
         for _, row in phase_df.iterrows():
             text = (
@@ -81,7 +76,6 @@ def create_gantt_chart(df: pd.DataFrame) -> go.Figure:
             )
             hover_texts.append(text)
 
-        # 使用 go.Bar 创建水平条形
         fig.add_trace(
             go.Bar(
                 x=phase_df["duration"].tolist(),
@@ -89,18 +83,23 @@ def create_gantt_chart(df: pd.DataFrame) -> go.Figure:
                 orientation="h",
                 name=phase,
                 marker_color=color,
-                text=[f"{d:.3f}s" for d in phase_df["duration"].tolist()],
+                text=[f"{d:.2f}s" for d in phase_df["duration"].tolist()],
                 textposition="inside",
                 insidetextanchor="start",
+                textfont=dict(size=9, color=DARK_BG),
                 hovertemplate="%{hovertext}<extra></extra>",
                 hovertext=hover_texts,
+                hoverlabel=dict(
+                    bgcolor=DARK_BG_SECONDARY,
+                    font_color=TEXT_COLOR,
+                    font_size=11,
+                ),
             )
         )
 
-    # 更新布局
     fig.update_layout(
         barmode="stack",
-        height=max(400, len(df) * 25 + 100),  # 动态高度
+        height=max(350, len(df) * 22 + 80),
         showlegend=True,
         legend=dict(
             orientation="h",
@@ -108,12 +107,37 @@ def create_gantt_chart(df: pd.DataFrame) -> go.Figure:
             y=1.02,
             xanchor="right",
             x=1,
+            font=dict(size=10, color=TEXT_COLOR),
+            bgcolor=DARK_BG_SECONDARY,
+            bordercolor=GRID_COLOR,
+            borderwidth=1,
         ),
-        xaxis_title="Duration (seconds)",
-        yaxis_title="Task ID",
-        margin=dict(l=150, r=50, t=50, b=50),
-        paper_bgcolor="white",
-        plot_bgcolor="white",
+        xaxis=dict(
+            title=dict(
+                text="Duration (seconds)",
+                font=dict(size=11, color=TEXT_COLOR_SECONDARY),
+            ),
+            tickfont=dict(size=9, color=TEXT_COLOR_SECONDARY),
+            gridcolor=GRID_COLOR,
+            linecolor=GRID_COLOR,
+            zerolinecolor=GRID_COLOR,
+        ),
+        yaxis=dict(
+            title=dict(text="Task ID", font=dict(size=11, color=TEXT_COLOR_SECONDARY)),
+            tickfont=dict(size=9, color=TEXT_COLOR_SECONDARY),
+            gridcolor=GRID_COLOR,
+            linecolor=GRID_COLOR,
+        ),
+        margin=dict(l=120, r=30, t=60, b=40),
+        paper_bgcolor=DARK_BG,
+        plot_bgcolor=DARK_BG,
+        font=dict(color=TEXT_COLOR),
+        title=dict(
+            text="Phase Timeline",
+            font=dict(size=14, color=TEXT_COLOR, weight="bold"),
+            x=0.5,
+            xanchor="center",
+        ),
     )
 
     return fig
@@ -176,18 +200,20 @@ def render_timing_gantt_page() -> None:
         for idx, (phase, color) in enumerate(PHASE_COLORS.items()):
             with legend_cols[idx]:
                 st.markdown(
-                    f'<div style="background-color:{color};'
-                    f"width:20px;height:20px;display:inline-block;"
-                    f'border-radius:3px;margin-right:5px;"></div>'
-                    f"<b>{phase}</b>",
+                    f'<div style="background-color:{DARK_BG_SECONDARY};padding:8px;border-radius:4px;">'
+                    f'<span style="background-color:{color};width:14px;height:14px;'
+                    f'display:inline-block;border-radius:3px;margin-right:6px;vertical-align:middle;"></span>'
+                    f'<span style="color:{TEXT_COLOR};font-size:12px;vertical-align:middle;">{phase}</span>'
+                    f"</div>",
                     unsafe_allow_html=True,
                 )
         with legend_cols[-1]:
             st.markdown(
-                f'<div style="background-color:{get_default_color()};'
-                f"width:20px;height:20px;display:inline-block;"
-                f'border-radius:3px;margin-right:5px;"></div>'
-                f"<b>Other</b>",
+                f'<div style="background-color:{DARK_BG_SECONDARY};padding:8px;border-radius:4px;">'
+                f'<span style="background-color:{get_default_color()};width:14px;height:14px;'
+                f'display:inline-block;border-radius:3px;margin-right:6px;vertical-align:middle;"></span>'
+                f'<span style="color:{TEXT_COLOR};font-size:12px;vertical-align:middle;">Other</span>'
+                f"</div>",
                 unsafe_allow_html=True,
             )
 
