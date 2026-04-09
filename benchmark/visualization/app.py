@@ -13,14 +13,13 @@ from benchmark.core.statistics import (
     calculate_std,
 )
 from benchmark.visualization.components import trends
+from benchmark.visualization.components.scoring_details import render_scoring_breakdown
 from benchmark.visualization.pages.timing_gantt import render_timing_gantt_page
 
 
 def render_overview_page() -> None:
     """概览页面 - 展示评测结果统计和列表."""
     st.title("📊 评测概览")
-    st.subheader("Evaluation Results")
-
     conn = get_connection()
 
     results_check = conn.execute("SELECT COUNT(*) FROM eval_results").fetchone()
@@ -43,7 +42,6 @@ def render_overview_page() -> None:
 
     st.subheader("Evaluation Results")
 
-    # 创建标签页结构
     tab1, tab2, tab3, tab4 = st.tabs(
         ["Results", "Trends", "Probe & Stability", "Detail"]
     )
@@ -57,7 +55,6 @@ def render_overview_page() -> None:
     with tab1:
         st.subheader("Statistics Summary")
 
-        # 计算统计数据
         scores = [row["final_score"] for row in results]
         if len(scores) >= 2:
             mean_score = calculate_mean(scores)
@@ -119,22 +116,18 @@ def render_overview_page() -> None:
     with tab2:
         st.subheader("Score Trends")
 
-        # 添加时间范围选择器
         time_range = st.selectbox(
             "Time Range", ["7 days", "30 days", "90 days", "All"], index=1
         )
         days_map = {"7 days": 7, "30 days": 30, "90 days": 90, "All": 365}
         selected_days = days_map[time_range]
 
-        # 获取当前选择的模型和维度
         selected_models = models if selected_model == "All" else [selected_model]
         selected_dimensions = (
             dimensions if selected_dimension == "All" else [selected_dimension]
         )
 
-        # 展示趋势图
         if selected_model != "All" and selected_dimension != "All":
-            # 单模型单维度的趋势图
             trend_data = trends.get_trend_data(
                 conn, selected_model, selected_dimension, selected_days
             )
@@ -147,7 +140,6 @@ def render_overview_page() -> None:
             else:
                 st.info("No trend data available for the selected model and dimension.")
         elif selected_model != "All" and selected_dimension == "All":
-            # 单模型多维度的趋势图
             for dimension in selected_dimensions:
                 trend_data = trends.get_trend_data(
                     conn, selected_model, dimension, selected_days
@@ -159,7 +151,6 @@ def render_overview_page() -> None:
                     )
                     st.pyplot(fig)
         elif selected_model == "All" and selected_dimension != "All":
-            # 多模型单维度的对比趋势图
             fig = trends.create_multi_model_trend(
                 conn, selected_models, selected_dimension, selected_days
             )
@@ -176,7 +167,6 @@ def render_overview_page() -> None:
             else (models[0] if models else None)
         )
 
-        # ── Probe 运行历史 ──
         st.markdown("#### Probe Runs")
         probe_runs = conn.execute(
             """SELECT run_id, model, status, started_at, finished_at
@@ -188,7 +178,6 @@ def render_overview_page() -> None:
             probe_data = []
             for r in probe_runs:
                 run_id = r["run_id"]
-                # 查询该 run 的评分统计
                 stats = conn.execute(
                     """SELECT COUNT(*) as total,
                               SUM(CASE WHEN passed THEN 1 ELSE 0 END) as passed,
@@ -211,7 +200,6 @@ def render_overview_page() -> None:
         else:
             st.info("No probe runs yet.")
 
-        # ── Stability Reports ──
         st.markdown("#### Stability Reports")
         stability_model = probe_model
         stability_rows = conn.execute(
@@ -237,7 +225,6 @@ def render_overview_page() -> None:
         else:
             st.info("No stability reports yet.")
 
-        # ── Cluster Reports ──
         st.markdown("#### Model Identity Clustering")
         cluster_rows = conn.execute(
             """SELECT model, n_clusters, n_noise, summary, created_at
@@ -271,121 +258,148 @@ def render_overview_page() -> None:
 
         if selected_result_id:
             detail = get_result_detail(conn, selected_result_id)
-            if detail:
-                selected_result_id = st.selectbox(
-                    "Evaluation Result Detail",
-                    options=result_ids,
-                    index=result_ids.index(st.session_state["selected_result_id"]),
-                    key="result_id_selector",
-                )
-                st.session_state["selected_result_id"] = selected_result_id
-                detail = get_result_detail(conn, selected_result_id)
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.metric("Score", f"{detail['final_score']:.1f}")
-                    st.metric("Passed", "Yes" if detail["passed"] else "No")
-                    st.metric("Execution Time", f"{detail['execution_time']:.2f}s")
+            if detail is None:
+                st.error(f"Result {selected_result_id} not found")
+                return
 
-                    # 查询 token 指标
-                    metrics_row = conn.execute(
-                        "SELECT * FROM api_call_metrics WHERE result_id = ?",
-                        (selected_result_id,),
-                    ).fetchone()
-                    if metrics_row:
+            selected_result_id = st.selectbox(
+                "Evaluation Result Detail",
+                options=result_ids,
+                index=result_ids.index(st.session_state["selected_result_id"]),
+                key="result_id_selector",
+            )
+            st.session_state["selected_result_id"] = selected_result_id
+            if selected_result_id is None:
+                st.error("No result selected")
+                return
+            detail = get_result_detail(conn, selected_result_id)
+
+            if detail is None:
+                st.error(f"Result {selected_result_id} not found")
+                return
+
+            # Task Info Section
+            st.markdown("### 📋 Task Information")
+            info_col1, info_col2, info_col3 = st.columns(3)
+            with info_col1:
+                st.markdown(f"**Task ID:** `{detail['task_id']}`")
+            with info_col2:
+                metadata = detail.get("metadata") or {}
+                st.markdown(f"**Dataset:** `{metadata.get('dataset', 'N/A')}`")
+            with info_col3:
+                st.markdown(f"**Dimension:** `{metadata.get('dimension', 'N/A')}`")
+
+            st.divider()
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("### 📊 Metrics")
+                metric_col1, metric_col2, metric_col3 = st.columns(3)
+                with metric_col1:
+                    st.metric("Score", f"{detail['final_score']:.1f}")
+                with metric_col2:
+                    st.metric("Passed", "Yes" if detail["passed"] else "No")
+                with metric_col3:
+                    st.metric("Time", f"{detail['execution_time']:.2f}s")
+
+                metrics_row = conn.execute(
+                    "SELECT * FROM api_call_metrics WHERE result_id = ?",
+                    (selected_result_id,),
+                ).fetchone()
+
+                if metrics_row:
+                    metrics_row = dict(metrics_row)
+                    token_col1, token_col2 = st.columns(2)
+                    with token_col1:
                         st.metric(
                             "Token Speed",
                             f"{metrics_row['tokens_per_second']:.1f} tok/s",
                         )
+                    with token_col2:
                         st.metric(
                             "Tokens",
                             f"{metrics_row['prompt_tokens']} in / {metrics_row['completion_tokens']} out",
                         )
-                        reasoning_tokens = (
-                            metrics_row["reasoning_tokens"]
-                            if "reasoning_tokens" in metrics_row.keys()
-                            else 0
-                        )
-                        if reasoning_tokens > 0:
-                            st.metric(
-                                "Reasoning Tokens",
-                                f"{reasoning_tokens}",
-                            )
-                        ttft_content = (
-                            metrics_row["ttft_content"]
-                            if "ttft_content" in metrics_row.keys()
-                            else 0.0
-                        )
-                        if ttft_content > 0:
-                            st.metric(
-                                "TTFT-C",
-                                f"{ttft_content:.2f}s",
-                            )
-                        ttft = (
-                            metrics_row["ttft"] if "ttft" in metrics_row.keys() else 0.0
-                        )
-                        if ttft > 0:
-                            st.metric(
-                                "TTFT-R",
-                                f"{ttft:.2f}s",
-                            )
 
-                with col2:
+                    extra_col1, extra_col2, extra_col3 = st.columns(3)
+                    reasoning_tokens = metrics_row.get("reasoning_tokens", 0)
+                    if reasoning_tokens > 0:
+                        with extra_col1:
+                            st.metric("Reasoning Tokens", f"{reasoning_tokens}")
+
+                    ttft_content = metrics_row.get("ttft_content", 0.0)
+                    if ttft_content > 0:
+                        with extra_col2:
+                            st.metric("TTFT-C", f"{ttft_content:.2f}s")
+
+                    ttft = metrics_row.get("ttft", 0.0)
+                    if ttft > 0:
+                        with extra_col3:
+                            st.metric("TTFT-R", f"{ttft:.2f}s")
+
+            with col2:
+                st.markdown("### 📝 Content")
+                st.text_area(
+                    "Prompt",
+                    value=detail.get("task_content", "") or "",
+                    height=150,
+                    disabled=True,
+                )
+
+                expected_content = detail.get("expected_output", "") or ""
+                if expected_content:
+                    st.markdown("**Expected Answer**")
                     st.text_area(
-                        "Prompt",
-                        value=detail.get("task_content", "") or "",
-                        height=200,
-                        disabled=True,
-                    )
-
-                    # 展示思考过程（折叠），优先从 metrics 读取 API 原生 reasoning_content
-                    think_content = detail.get("model_think", "") or ""
-                    if metrics_row and metrics_row["reasoning_content"]:
-                        think_content = metrics_row["reasoning_content"]
-                    if think_content:
-                        with st.expander("Thinking", expanded=False):
-                            st.text_area(
-                                "Thinking Process",
-                                value=think_content,
-                                height=200,
-                                disabled=True,
-                                label_visibility="collapsed",
-                            )
-
-                    # 展示正确答案
-                    expected_content = detail.get("expected_output", "") or ""
-                    if expected_content:
-                        st.markdown("**Expected Answer**")
-                        st.text_area(
-                            "Expected",
-                            value=expected_content,
-                            height=100,
-                            disabled=True,
-                            label_visibility="collapsed",
-                        )
-
-                    # 展示最终答案
-                    answer_content = detail.get("model_answer", "") or ""
-                    st.markdown("**Model Answer**")
-                    st.text_area(
-                        "Answer",
-                        value=answer_content,
-                        height=300,
+                        "Expected",
+                        value=expected_content,
+                        height=100,
                         disabled=True,
                         label_visibility="collapsed",
                     )
 
-                detail_raw = detail.get("details")
-                if detail_raw:
-                    with st.expander("Score Details"):
-                        try:
-                            parsed = (
-                                json.loads(detail_raw)
-                                if isinstance(detail_raw, str)
-                                else detail_raw
-                            )
-                            st.json(parsed)
-                        except (json.JSONDecodeError, TypeError):
-                            st.write(detail_raw)
+                answer_content = detail.get("model_answer", "") or ""
+                st.markdown("**Model Answer**")
+                st.text_area(
+                    "Answer",
+                    value=answer_content,
+                    height=150,
+                    disabled=True,
+                    label_visibility="collapsed",
+                )
+
+            st.divider()
+
+            # Scoring Section
+            st.markdown("### 🎯 Scoring Details")
+
+            think_content = detail.get("model_think", "") or ""
+            if metrics_row and metrics_row.get("reasoning_content"):
+                think_content = metrics_row["reasoning_content"]
+
+            if think_content:
+                with st.expander("Thinking Process", expanded=False):
+                    st.text_area(
+                        "Thinking",
+                        value=think_content,
+                        height=200,
+                        disabled=True,
+                        label_visibility="collapsed",
+                    )
+
+            detail_raw = detail.get("details")
+            if detail_raw:
+                try:
+                    parsed_details = (
+                        json.loads(detail_raw)
+                        if isinstance(detail_raw, str)
+                        else detail_raw
+                    )
+                    render_scoring_breakdown(parsed_details)
+                except (json.JSONDecodeError, TypeError):
+                    with st.expander("Raw Score Details"):
+                        st.write(detail_raw)
+            else:
+                st.info("No scoring details available")
 
 
 DB_PATH = "benchmark/data/results.db"
@@ -472,12 +486,10 @@ def get_result_detail(conn: sqlite3.Connection, result_id: str) -> dict | None:
 def main() -> None:
     st.set_page_config(page_title="LLM Benchmark", layout="wide")
 
-    # 初始化日志，确保 scheduler 等模块的 logger 输出到 stdout
     from benchmark.core.logging_config import setup_logging
 
     setup_logging()
 
-    # 启动定时调度器（仅非 Docker 环境：Docker 中由 entrypoint 独立启动，避免重复）
     if (
         "scheduler_started" not in st.session_state
         and os.getenv("RUNNING_IN_DOCKER") != "true"
@@ -488,7 +500,6 @@ def main() -> None:
         sched.start()
         st.session_state["scheduler_started"] = True
 
-    # 侧边栏页面导航
     st.sidebar.title("页面导航")
     page_names_to_funcs: dict[str, Callable] = {
         "📊 评测概览": render_overview_page,
@@ -496,7 +507,6 @@ def main() -> None:
     }
     selected_page = st.sidebar.radio("选择页面", list(page_names_to_funcs.keys()))
 
-    # 渲染选中的页面
     page_names_to_funcs[selected_page]()
 
 
