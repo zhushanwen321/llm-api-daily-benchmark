@@ -115,17 +115,30 @@ class BackendProbe(BaseProbe):
         passed_count = 0
         total_checks = len(validation_criteria) + len(test_cases)
 
-        # 检查验证标准
+        # 检查验证标准 - 验证整个短语或关键词组合
         for criterion in validation_criteria:
             criterion_lower = criterion.lower()
-            # 检查关键元素是否存在
-            if any(keyword in response_lower for keyword in criterion_lower.split()):
+            # 检查完整短语是否在响应中
+            if criterion_lower in response_lower:
                 passed_count += 1
+            else:
+                # 检查主要关键词（至少50%匹配）
+                criterion_words = criterion_lower.split()
+                if criterion_words:
+                    matched_words = sum(
+                        1 for word in criterion_words if word in response_lower
+                    )
+                    if matched_words / len(criterion_words) >= 0.5:
+                        passed_count += 0.5
 
         # 检查测试用例相关关键词
         for test_case in test_cases:
             test_lower = test_case.lower()
-            if any(keyword in response_lower for keyword in test_lower.split()[:3]):
+            # 检查测试用例的核心概念是否在响应中（前3个词）
+            test_keywords = test_lower.split()[:3]
+            if test_keywords and any(
+                keyword in response_lower for keyword in test_keywords
+            ):
                 passed_count += 0.5
 
         score = (passed_count / total_checks * 100) if total_checks > 0 else 0

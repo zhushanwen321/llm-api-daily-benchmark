@@ -127,23 +127,34 @@ class ReasoningProbe(BaseProbe):
         expected_numbers = self._extract_numbers(expected_clean)
 
         if response_numbers and expected_numbers:
-            # 对于多答案情况（如 "A或B"），检查是否包含任一答案
-            expected_values = expected_clean.replace("或", ",").split(",")
-            for val in expected_values:
-                val = val.strip()
-                if val in response_clean:
+            # 对于多答案情况，检查是否包含任一答案
+            # 支持多种分隔符：或、或者、/、,
+            for separator in ["或", "或者", "/", ",", "，"]:
+                if separator in expected_clean:
+                    expected_values = [
+                        v.strip() for v in expected_clean.split(separator)
+                    ]
+                    for val in expected_values:
+                        if val in response_clean:
+                            return 100.0, True
+                    break
+            else:
+                # 没有分隔符，检查完整匹配
+                if expected_clean in response_clean:
                     return 100.0, True
 
-            # 数值答案精确匹配
+            # 数值答案精确匹配（第一个数字）
             if response_numbers[0] == expected_numbers[0]:
                 return 100.0, True
 
-            # 80% 部分正确（接近答案）
-            if (
-                abs(response_numbers[0] - expected_numbers[0])
-                / max(expected_numbers[0], 1)
-                < 0.2
-            ):
+            # 80% 部分正确（接近答案，20%误差范围内）
+            if expected_numbers[0] != 0:
+                relative_error = abs(response_numbers[0] - expected_numbers[0]) / abs(
+                    expected_numbers[0]
+                )
+                if relative_error < 0.2:
+                    return 80.0, False
+            elif abs(response_numbers[0] - expected_numbers[0]) < 0.2:
                 return 80.0, False
 
         # 检查关键答案词

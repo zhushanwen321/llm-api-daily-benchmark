@@ -114,12 +114,21 @@ class FrontendProbe(BaseProbe):
         response_lower = response.lower()
         passed_count = 0
 
-        # 检查关键代码元素
+        # 检查关键代码元素 - 验证完整短语或主要关键词
         for criterion in validation_criteria:
             criterion_lower = criterion.lower()
-            # 检查关键元素是否存在
-            if any(keyword in response_lower for keyword in criterion_lower.split()):
+            # 检查完整短语是否在响应中
+            if criterion_lower in response_lower:
                 passed_count += 1
+            else:
+                # 检查主要关键词（至少50%匹配）
+                criterion_words = criterion_lower.split()
+                if criterion_words:
+                    matched_words = sum(
+                        1 for word in criterion_words if word in response_lower
+                    )
+                    if matched_words / len(criterion_words) >= 0.5:
+                        passed_count += 0.5
 
         score = (
             (passed_count / len(validation_criteria) * 100)
