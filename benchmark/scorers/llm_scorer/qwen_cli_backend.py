@@ -37,7 +37,10 @@ class QwenCLIBackend(LLMScorerBackend):
         last_error: Exception | None = None
         for attempt in range(self.max_retries):
             try:
-                raw_output = await self._call_qwen(prompt)
+                current_prompt = prompt
+                if attempt > 0 and last_error is not None:
+                    current_prompt = self._append_retry_hint(prompt, last_error)
+                raw_output = await self._call_qwen(current_prompt)
                 return self._parse_result(raw_output, dimensions)
             except Exception as exc:
                 last_error = exc
@@ -153,7 +156,10 @@ class QwenCLIBackend(LLMScorerBackend):
             [
                 "}",
                 "",
-                "规则：score 必须是 0 到 100 的数字，passed 必须是 true 或 false。",
+                "规则：",
+                "1. score 必须是 0 到 100 的数字，passed 必须是 true 或 false",
+                "2. 必须返回严格合法的 JSON，可直接通过 json.loads 解析",
+                "3. JSON 字符串值中的反斜杠必须双转义（如 LaTeX \\frac 写为 \\\\frac）",
             ]
         )
 
@@ -231,7 +237,6 @@ class QwenCLIBackend(LLMScorerBackend):
         dimensions: list[str],
     ) -> dict[str, ScoreResult]:
         """解析 qwen 返回的结果为 ScoreResult 字典。"""
-        # 尝试从 raw 中提取 JSON（处理 ```json ... ``` 包裹）
         json_str = self._extract_json_from_text(raw)
 
         try:
@@ -277,6 +282,19 @@ class QwenCLIBackend(LLMScorerBackend):
             )
 
         return result
+
+    def _append_retry_hint(self, original_prompt: str, error: Exception) -> str:
+        """重试时追加错误提示，引导模型修正输出格式。"""
+        hint = (
+            "\n\n=== 重要提醒 ===\n"
+            "你上一次的返回无法被解析为合法 JSON，错误信息：\n"
+            f"{error}\n\n"
+            "请确保：\n"
+            "1. 只返回 JSON 对象，不要有其他文字或 markdown 代码块标记\n"
+            "2. JSON 字符串值中的反斜杠必须双转义（\\frac → \\\\frac）\n"
+            "3. JSON 语法完全正确（引号、逗号、括号匹配）"
+        )
+        return original_prompt + hint
 
     def _extract_json_from_text(self, text: str) -> str:
         """从文本中提取 JSON 内容（处理 markdown code block）。"""
