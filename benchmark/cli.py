@@ -112,6 +112,41 @@ def _setup_proxy() -> None:
         os.environ.setdefault("all_proxy", proxy)
 
 
+def _trigger_scoring_worker() -> None:
+    """启动评分Worker进程（非阻塞）。"""
+    import subprocess
+    import sys
+
+    max_concurrency = os.getenv("SCORING_WORKER_MAX_CONCURRENCY", "3")
+    completion_delay = os.getenv("SCORING_WORKER_COMPLETION_DELAY", "10")
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "benchmark.workers.scoring_worker",
+        "--once",
+        "--max-concurrency",
+        max_concurrency,
+        "--completion-delay",
+        completion_delay,
+    ]
+
+    try:
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        logger.info(
+            "Scoring worker triggered | max_concurrency=%s | completion_delay=%ss",
+            max_concurrency,
+            completion_delay,
+        )
+    except Exception as e:
+        logger.warning("Failed to trigger scoring worker: %s", e)
+
+
 @click.group()
 @click.option(
     "--debug",
@@ -152,9 +187,20 @@ def cli(ctx: click.Context, debug: bool) -> None:
     default=False,
     help="启用 debug 模式（也可放在 'benchmark' 命令后）",
 )
+@click.option(
+    "--trigger-scoring",
+    is_flag=True,
+    default=False,
+    help="评测完成后自动启动评分Worker（仅异步评分模式有效）",
+)
 @click.pass_context
 def evaluate(
-    ctx: click.Context, model: str, dimension: str, samples: int, debug: bool
+    ctx: click.Context,
+    model: str,
+    dimension: str,
+    samples: int,
+    debug: bool,
+    trigger_scoring: bool,
 ) -> None:
     # 如果子命令没有指定 debug，使用父命令的设置
     if not debug:
@@ -188,6 +234,10 @@ def evaluate(
             await stop_timing_collection()
 
     asyncio.run(_run_evaluation_with_timing())
+
+    # 触发评分Worker（如果启用）
+    if trigger_scoring and async_scoring_enabled:
+        _trigger_scoring_worker()
 
 
 async def _evaluate_task(
