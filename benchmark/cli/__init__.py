@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import subprocess
+import sys
 import time
 import uuid
 from datetime import datetime
@@ -17,7 +18,6 @@ from typing import Any
 import click
 from dotenv import load_dotenv
 from rich.console import Console
-from rich.progress import Progress
 
 from benchmark.adapters.bigcodebench_adapter import BigCodeBenchAdapter
 from benchmark.adapters.frontcode_adapter import FrontCodeAdapter
@@ -329,9 +329,12 @@ async def _evaluate_task(
         """实际评测逻辑（不含 semaphore 等待）。"""
         nonlocal result_id
         try:
-            logger.debug(f"处理任务 {task_idx + 1}/{total}: {task.task_id}")
+            logger.info(
+                f"[TASK] 开始 | task_id={task.task_id} | model={model} | dimension={dimension}"
+            )
 
             # Phase 1: LLM request
+            logger.info(f"[TASK] LLM请求开始 | task_id={task.task_id}")
             timing.start_phase("llm_request")
             ctx = await evaluator.evaluate(
                 task, model, llm, system_message=system_message
@@ -339,8 +342,15 @@ async def _evaluate_task(
             timing.end_phase("llm_request")
             gm = ctx.gen_metrics or {}
             api_duration = gm.get("duration", 0.0)
+            logger.info(
+                f"[TASK] LLM请求完成 | task_id={task.task_id} | "
+                f"duration={api_duration:.2f}s | ttft={gm.get('ttft', 0.0):.2f}s | "
+                f"tokens={gm.get('prompt_tokens', 0)}/{gm.get('completion_tokens', 0)} | "
+                f"speed={gm.get('tokens_per_second', 0.0):.1f}tok/s"
+            )
 
             # Phase 2: Score calculation
+            logger.info(f"[TASK] 评分开始 | task_id={task.task_id}")
             timing.start_phase("score_calculation")
 
             async_scoring_enabled = (
@@ -355,6 +365,9 @@ async def _evaluate_task(
                 passed = False
                 score_details = {"async_scoring": True, "status": "pending"}
                 score_reasoning = "Pending async scoring"
+                logger.info(
+                    f"[TASK] 异步评分模式 | task_id={task.task_id} | 跳过同步评分"
+                )
             else:
                 # 原有同步评分逻辑
                 score_result = await _score_with_timing(scorer, ctx, timing)
@@ -366,12 +379,16 @@ async def _evaluate_task(
                 score_reasoning = getattr(score_result, "reasoning", "")
 
             timing.end_phase("score_calculation")
-
-            logger.debug(
-                f"任务 {task.task_id} 评分结果: score={final_score}, passed={passed}"
+            logger.info(
+                f"[TASK] 评分完成 | task_id={task.task_id} | "
+                f"score={final_score:.1f} | passed={passed} | "
+                f"async={async_scoring_enabled}"
             )
 
             # Phase 3: DB write
+            logger.info(
+                f"[TASK] 数据保存开始 | task_id={task.task_id} | result_id={result_id}"
+            )
             timing.start_phase("db_write")
             result = EvalResult(
                 result_id=result_id,
@@ -426,8 +443,12 @@ async def _evaluate_task(
                 )
             )
             timing.end_phase("db_write")
+            logger.info(
+                f"[TASK] 数据保存完成 | task_id={task.task_id} | result_id={result_id}"
+            )
 
             # Phase 4: Quality signals
+            logger.info(f"[TASK] 质量信号采集开始 | task_id={task.task_id}")
             timing.start_phase("quality_signals")
             try:
                 from benchmark.analysis.quality_signals import QualitySignalCollector
@@ -442,8 +463,11 @@ async def _evaluate_task(
                     task=task,
                     dimension=dimension,
                 )
+                logger.info(f"[TASK] 质量信号采集完成 | task_id={task.task_id}")
             except Exception as exc:
-                logger.warning(f"质量信号采集失败: {exc}")
+                logger.warning(
+                    f"[TASK] 质量信号采集失败 | task_id={task.task_id}: {exc}"
+                )
             timing.end_phase("quality_signals")
 
             effective_total = timing.get_total_duration()
@@ -464,13 +488,21 @@ async def _evaluate_task(
                 f"Speed: {tps:.1f} tok/s"
             )
 
+            logger.info(
+                f"[TASK] 完成 | task_id={task.task_id} | "
+                f"score={final_score:.1f} | passed={passed} | "
+                f"total_time={effective_total:.2f}s"
+            )
+
             return {
                 "score": final_score,
                 "passed": passed,
                 "task_id": task.task_id,
             }
         except Exception as exc:
-            logger.error(f"任务 {getattr(task, 'task_id', task_idx)} 失败: {exc}")
+            logger.error(
+                f"[TASK] 失败 | task_id={getattr(task, 'task_id', task_idx)}: {type(exc).__name__}: {exc}"
+            )
             status_msg = f"[red]ERROR: {type(exc).__name__}: {exc}[/red]"
             console.print(
                 f"  [{task_idx + 1}/{total}] {getattr(task, 'task_id', '?')} | {status_msg}"
@@ -568,19 +600,35 @@ async def _run_evaluation(
         total_score = 0.0
         passed_count = 0
         failed_count = 0
-        with Progress() as progress:
-            task_progress = progress.add_task("Evaluating", total=len(tasks))
-            for coro in asyncio.as_completed(coros):
-                r = await coro
-                progress.advance(task_progress)
-                if isinstance(r, Exception):
-                    failed_count += 1
-                    continue
-                if r.get("error"):
-                    failed_count += 1
-                total_score += r["score"]
-                if r["passed"]:
-                    passed_count += 1
+        completed_count = 0
+        logger.info(
+            f"[EVAL] 开始评测 | run_id={run_id} | model={model} | dimension={dimension} | tasks={len(tasks)}"
+        )
+        for coro in asyncio.as_completed(coros):
+            r = await coro
+            completed_count += 1
+            if isinstance(r, Exception):
+                failed_count += 1
+                logger.error(
+                    f"[EVAL] 任务失败 ({completed_count}/{len(tasks)}): {type(r).__name__}: {r}"
+                )
+                continue
+            if r.get("error"):
+                failed_count += 1
+                logger.error(
+                    f"[EVAL] 任务失败 ({completed_count}/{len(tasks)}): {r.get('task_id', '?')}"
+                )
+            else:
+                status = "PASS" if r["passed"] else "FAIL"
+                logger.info(
+                    f"[EVAL] 任务完成 ({completed_count}/{len(tasks)}) | task_id={r.get('task_id', '?')} | score={r['score']:.1f} | status={status}"
+                )
+            total_score += r["score"]
+            if r["passed"]:
+                passed_count += 1
+        logger.info(
+            f"[EVAL] 评测完成 | run_id={run_id} | completed={completed_count}/{len(tasks)} | passed={passed_count} | failed={failed_count}"
+        )
 
         try:
             from benchmark.analysis.stability_analyzer import StabilityAnalyzer
