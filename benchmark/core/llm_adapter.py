@@ -61,6 +61,14 @@ class LLMEvalAdapter:
             self._model_cache[model] = get_model_config(model)
         return self._model_cache[model]
 
+    def register_model_config(self, model: str, config: dict[str, Any]) -> None:
+        """注册模型配置到缓存，绕过 get_model_config() 对 models.yaml 的依赖。
+
+        config 结构必须与 _get_model_config() 返回值一致：
+        {"provider", "api_key", "api_base", "max_tokens", "max_concurrency", "thinking"}
+        """
+        self._model_cache[model] = config
+
     async def agenerate(
         self,
         prompt: str,
