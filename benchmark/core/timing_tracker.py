@@ -236,129 +236,110 @@ class TimingCollector:
         )
         await db.commit()
 
+    async def _write_record(
+        self, db: aiosqlite.Connection, record: _TimingRecord
+    ) -> None:
+        """写入单条记录到数据库."""
+        for phase in record.timing._phases.values():
+            await db.execute(
+                """
+                INSERT INTO timing_phases (
+                    result_id, run_id, model, task_id, phase_name,
+                    start_time, end_time, duration, wait_time, active_time,
+                    metadata, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.result_id,
+                    record.run_id,
+                    record.model,
+                    record.task_id,
+                    phase.phase_name,
+                    phase.start_time,
+                    phase.end_time,
+                    phase.duration,
+                    phase.wait_time,
+                    phase.active_time,
+                    json.dumps(phase.metadata, ensure_ascii=False),
+                    record.created_at,
+                ),
+            )
+        await db.commit()
+
     async def _write_loop(self) -> None:
-        """写入循环：持续从队列消费并写入数据库."""
+        """写入循环：复用单个数据库连接，持续从队列消费并写入."""
         retry_delay = 1.0
         max_retry_delay = 60.0
 
-        while self._running:
-            try:
-                async with asyncio.timeout(5.0):
-                    record = await self._queue.get()
+        db = await aiosqlite.connect(self.db_path, timeout=30)
+        try:
+            await db.execute("PRAGMA journal_mode=WAL")
+            await db.execute("PRAGMA busy_timeout=30000")
+            await self._init_db(db)
 
-                if record is None:
-                    # 收到停止信号，处理完剩余数据
-                    break
-
+            while self._running:
                 try:
-                    async with aiosqlite.connect(self.db_path) as db:
-                        await self._init_db(db)
-                        phases = record.timing._phases
-                        for phase in phases.values():
-                            await db.execute(
-                                """
-                                INSERT INTO timing_phases (
-                                    result_id, run_id, model, task_id, phase_name,
-                                    start_time, end_time, duration, wait_time, active_time,
-                                    metadata, created_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                """,
-                                (
-                                    record.result_id,
-                                    record.run_id,
-                                    record.model,
-                                    record.task_id,
-                                    phase.phase_name,
-                                    phase.start_time,
-                                    phase.end_time,
-                                    phase.duration,
-                                    phase.wait_time,
-                                    phase.active_time,
-                                    json.dumps(phase.metadata, ensure_ascii=False),
-                                    record.created_at,
-                                ),
-                            )
-                        await db.commit()
-                    self._written += 1
-                    retry_delay = 1.0  # 成功后重置延迟
+                    async with asyncio.timeout(5.0):
+                        record = await self._queue.get()
 
-                except Exception:
-                    self._write_errors += 1
-                    logger.exception(
-                        "Failed to write timing record: result_id=%s", record.result_id
-                    )
-                    # 指数退避，最多重试3次
-                    if retry_delay <= max_retry_delay / 4:  # 最多重试3次 (1s, 2s, 4s)
-                        await asyncio.sleep(retry_delay)
-                        retry_delay = min(retry_delay * 2, max_retry_delay)
-                        # 重新入队
-                        try:
-                            self._queue.put_nowait(record)
-                        except asyncio.QueueFull:
-                            self._dropped += 1
-                            logger.error(
-                                "Record dropped after write failure (queue full): result_id=%s",
-                                record.result_id,
-                            )
-                    else:
-                        # 超过重试次数，记录到错误日志
-                        logger.error(
-                            "Record dropped after max retries: result_id=%s, retry_delay=%.1fs",
+                    if record is None:
+                        break
+
+                    try:
+                        await self._write_record(db, record)
+                        self._written += 1
+                        retry_delay = 1.0
+
+                    except Exception:
+                        self._write_errors += 1
+                        logger.exception(
+                            "Failed to write timing record: result_id=%s",
                             record.result_id,
-                            retry_delay,
                         )
-                        self._dropped += 1
-
-            except asyncio.TimeoutError:
-                # 队列等待超时，继续循环检查 _running
-                continue
-            except Exception:
-                logger.exception("Unexpected error in _write_loop")
-                await asyncio.sleep(1.0)
-
-        # 处理队列中剩余的记录
-        while not self._queue.empty():
-            try:
-                record = self._queue.get_nowait()
-                if record is None:
-                    continue
-                try:
-                    async with aiosqlite.connect(self.db_path) as db:
-                        await self._init_db(db)
-                        for phase in record.timing._phases.values():
-                            await db.execute(
-                                """
-                                INSERT INTO timing_phases (
-                                    result_id, run_id, model, task_id, phase_name,
-                                    start_time, end_time, duration, wait_time, active_time,
-                                    metadata, created_at
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                                """,
-                                (
+                        if retry_delay <= max_retry_delay / 4:
+                            await asyncio.sleep(retry_delay)
+                            retry_delay = min(retry_delay * 2, max_retry_delay)
+                            try:
+                                self._queue.put_nowait(record)
+                            except asyncio.QueueFull:
+                                self._dropped += 1
+                                logger.error(
+                                    "Record dropped after write failure (queue full): result_id=%s",
                                     record.result_id,
-                                    record.run_id,
-                                    record.model,
-                                    record.task_id,
-                                    phase.phase_name,
-                                    phase.start_time,
-                                    phase.end_time,
-                                    phase.duration,
-                                    phase.wait_time,
-                                    phase.active_time,
-                                    json.dumps(phase.metadata, ensure_ascii=False),
-                                    record.created_at,
-                                ),
+                                )
+                        else:
+                            logger.error(
+                                "Record dropped after max retries: result_id=%s, retry_delay=%.1fs",
+                                record.result_id,
+                                retry_delay,
                             )
-                        await db.commit()
-                    self._written += 1
+                            self._dropped += 1
+
+                except asyncio.TimeoutError:
+                    continue
                 except Exception:
-                    self._write_errors += 1
-                    logger.exception(
-                        "Failed to flush remaining record: result_id=%s",
-                        record.result_id,
-                    )
-            except asyncio.QueueEmpty:
-                break
+                    logger.exception("Unexpected error in _write_loop")
+                    await asyncio.sleep(1.0)
+
+            # 处理队列中剩余的记录
+            while not self._queue.empty():
+                try:
+                    record = self._queue.get_nowait()
+                    if record is None:
+                        continue
+                    try:
+                        await self._write_record(db, record)
+                        self._written += 1
+                    except Exception:
+                        self._write_errors += 1
+                        logger.exception(
+                            "Failed to flush remaining record: result_id=%s",
+                            record.result_id,
+                        )
+                except asyncio.QueueEmpty:
+                    break
+        finally:
+            await db.close()
 
     def start(self) -> None:
         """启动异步写入任务."""
