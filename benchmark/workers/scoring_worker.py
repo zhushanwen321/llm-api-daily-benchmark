@@ -10,6 +10,11 @@
 锁机制:
 - 使用文件锁防止多个worker实例同时运行
 - 锁文件路径: /tmp/benchmark_scoring_worker.lock
+
+信号机制:
+- 使用信号文件检测 benchmark 是否还在运行
+- 信号文件路径: /tmp/benchmark_scoring_active
+- 当信号文件不存在且无 pending 任务时，worker 会在 idle_timeout 后退出
 """
 
 from __future__ import annotations
@@ -155,21 +160,25 @@ class ScoringWorker:
     async def start_daemon(
         self,
         poll_interval: int = 5,
-        batch_size: int = 10,
+        max_concurrency: int = 3,
         max_retries: int = 3,
+        signal_file: str = "/tmp/benchmark_scoring_active",
+        idle_timeout: int = 30,
     ) -> None:
         """守护模式：长期运行，定期轮询新任务。
 
         Args:
             poll_interval: 轮询间隔（秒）
-            batch_size: 每批处理任务数
+            max_concurrency: 最大并发评分数
             max_retries: 单个任务最大重试次数
+            signal_file: benchmark 信号文件路径
+            idle_timeout: 信号文件消失后等待退出的时间（秒）
         """
         logger.info(
-            "ScoringWorker (daemon mode) started | backend=%s | poll_interval=%ds | batch_size=%d",
+            "ScoringWorker (daemon mode) started | backend=%s | poll_interval=%ds | max_concurrency=%d",
             type(self.backend).__name__,
             poll_interval,
-            batch_size,
+            max_concurrency,
         )
 
         healthy = await self.backend.health_check()
@@ -179,9 +188,48 @@ class ScoringWorker:
         self._running = True
         self._recover_stale_tasks()
 
+        idle_count = 0
+        idle_check_interval = min(poll_interval, 1)
+
         while self._running:
+            signal_exists = Path(signal_file).exists()
+
+            if signal_exists:
+                # benchmark 还在运行，重置 idle 计数
+                idle_count = 0
+            else:
+                # benchmark 已结束
+                idle_count += 1
+
             try:
-                await self._process_batch(batch_size, max_retries)
+                batch_count = await self._process_all_pending(max_concurrency)
+
+                # 处理完成后的逻辑
+                if batch_count > 0:
+                    # 有新任务被处理，重置 idle 计数
+                    idle_count = 0
+                elif not signal_exists:
+                    # benchmark 已结束且无新任务
+                    # 检查是否有 pending 任务
+                    pending_count = self.db.get_pending_task_count()
+                    if pending_count == 0:
+                        # 空闲超时检测
+                        idle_waited = idle_count * idle_check_interval
+                        if idle_waited >= idle_timeout:
+                            logger.info(
+                                "Signal file not found and no pending tasks for %ds, exiting daemon",
+                                idle_waited,
+                            )
+                            break
+                        logger.info(
+                            "Signal file not found, waiting for idle timeout (%d/%ds)",
+                            idle_waited,
+                            idle_timeout,
+                        )
+                    else:
+                        # 还有 pending 任务，继续处理
+                        idle_count = 0
+
             except Exception as e:
                 logger.error("Worker batch error: %s", e, exc_info=True)
 
@@ -270,6 +318,39 @@ class ScoringWorker:
             task_dict["dimension"],
             retry_count,
             max_retries,
+        )
+
+        context = self._build_scoring_context(task_dict)
+        dimensions = json.loads(task_dict["scoring_dimensions"])
+
+        task_timeout = int(os.getenv("SCORING_TASK_TIMEOUT", "300"))
+
+        try:
+            score_results = await asyncio.wait_for(
+                self.backend.score(context, dimensions),
+                timeout=task_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.error("Task %d timed out after %d seconds", task_id, task_timeout)
+            self.db.fail_scoring_task(
+                task_id, f"Task timed out after {task_timeout} seconds"
+            )
+            return
+
+        result_data: dict[str, Any] = {}
+        for dim, result in score_results.items():
+            result_data[dim] = {
+                "score": result.score,
+                "passed": result.passed,
+                "details": result.details,
+                "reasoning": result.reasoning,
+            }
+
+        self.db.complete_scoring_task(task_id, result_data)
+        self._update_eval_result(task_dict["result_id"], result_data)
+
+        logger.info(
+            "Task %d completed | dimensions=%s", task_id, list(score_results.keys())
         )
 
         context = self._build_scoring_context(task_dict)
@@ -410,10 +491,22 @@ async def main() -> None:
         help="守护模式轮询间隔（秒，默认5）",
     )
     parser.add_argument(
-        "--batch-size",
+        "--max-retries",
         type=int,
-        default=int(os.getenv("SCORING_WORKER_BATCH_SIZE", "10")),
-        help="守护模式每批处理任务数（默认10）",
+        default=int(os.getenv("SCORING_WORKER_MAX_RETRIES", "3")),
+        help="单个任务最大重试次数（默认3）",
+    )
+    parser.add_argument(
+        "--signal-file",
+        type=str,
+        default=os.getenv("SCORING_SIGNAL_FILE", "/tmp/benchmark_scoring_active"),
+        help="benchmark 信号文件路径（守护模式使用，默认/tmp/benchmark_scoring_active）",
+    )
+    parser.add_argument(
+        "--idle-timeout",
+        type=int,
+        default=int(os.getenv("SCORING_WORKER_IDLE_TIMEOUT", "30")),
+        help="信号文件消失后等待退出的时间（秒，默认30）",
     )
     parser.add_argument(
         "--no-lock",
@@ -447,7 +540,10 @@ async def main() -> None:
                     else:
                         await worker.start_daemon(
                             poll_interval=args.poll_interval,
-                            batch_size=args.batch_size,
+                            max_concurrency=args.max_concurrency,
+                            max_retries=args.max_retries,
+                            signal_file=args.signal_file,
+                            idle_timeout=args.idle_timeout,
                         )
                 except KeyboardInterrupt:
                     worker.stop()
@@ -472,7 +568,10 @@ async def main() -> None:
             else:
                 await worker.start_daemon(
                     poll_interval=args.poll_interval,
-                    batch_size=args.batch_size,
+                    max_concurrency=args.max_concurrency,
+                    max_retries=args.max_retries,
+                    signal_file=args.signal_file,
+                    idle_timeout=args.idle_timeout,
                 )
         except KeyboardInterrupt:
             worker.stop()
