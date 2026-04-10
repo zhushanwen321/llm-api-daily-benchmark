@@ -56,7 +56,7 @@ class TimingTracker:
     def __init__(self) -> None:
         self._phases: dict[str, PhaseTiming] = {}
         self._wait_stacks: dict[
-            str, list[tuple[float, str]]
+            str, list[tuple[float, str | None]]
         ] = {}  # phase_name -> [(start_time, task_id), ...]
         self._reference_time: Optional[float] = (
             None  # 首个 phase 的 start_time，用于甘特图
@@ -94,32 +94,32 @@ class TimingTracker:
         # active_time = duration - total_wait_time (ensure non-negative)
         phase.active_time = max(0.0, phase.duration - phase.wait_time)
 
-    def record_wait_start(self, name: str, task_id: str) -> None:
+    def record_wait_start(self, phase_name: str, task_id: str | None) -> None:
         """记录等待开始（不阻塞主流程）."""
         now = time.monotonic()
-        if name not in self._wait_stacks:
-            self._wait_stacks[name] = []
-        self._wait_stacks[name].append((now, task_id))
+        if phase_name not in self._wait_stacks:
+            self._wait_stacks[phase_name] = []
+        self._wait_stacks[phase_name].append((now, task_id))
 
-    def record_wait_end(self, name: str, task_id: str) -> None:
+    def record_wait_end(self, phase_name: str, task_id: str | None) -> None:
         """记录等待结束，累加 wait_time 到对应 phase."""
-        if name not in self._wait_stacks or not self._wait_stacks[name]:
+        if phase_name not in self._wait_stacks or not self._wait_stacks[phase_name]:
             logger.warning(
                 "record_wait_end called without matching record_wait_start: %s, %s",
-                name,
+                phase_name,
                 task_id,
             )
             return
 
         now = time.monotonic()
         # 匹配最新的等待记录
-        stack = self._wait_stacks[name]
+        stack = self._wait_stacks[phase_name]
         for i in range(len(stack) - 1, -1, -1):
             start_time, stacked_task_id = stack[i]
             if stacked_task_id == task_id:
                 wait_duration = now - start_time
-                if name in self._phases:
-                    self._phases[name].wait_time += wait_duration
+                if phase_name in self._phases:
+                    self._phases[phase_name].wait_time += wait_duration
                 stack.pop(i)
                 break
 

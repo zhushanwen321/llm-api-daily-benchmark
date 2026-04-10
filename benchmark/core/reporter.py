@@ -335,7 +335,8 @@ def _build_dimension_score_table(
     rows: list[dict],
 ) -> dict[str, dict[str, dict[str, float]]]:
     """构建维度子分数表。Returns: {model: {dimension: {sub_dimension: avg_score}}}"""
-    result: dict[str, dict[str, dict[str, float]]] = {}
+    # 使用两个阶段的结构：先聚合 sum/count，再计算平均值
+    agg_result: dict[str, dict[str, dict[str, dict[str, float]]]] = {}
     for row in rows:
         model = row.get("model", "")
         dimension = row.get("dimension", "")
@@ -352,20 +353,23 @@ def _build_dimension_score_table(
         sub_scores = composite.get("scores", {})
         if not sub_scores:
             continue
-        result.setdefault(model, {}).setdefault(dimension, {})
+        agg_result.setdefault(model, {}).setdefault(dimension, {})
         for key, val in sub_scores.items():
             if isinstance(val, (int, float)):
-                bucket = result[model][dimension]
-                if key not in bucket:
-                    bucket[key] = {"sum": 0.0, "count": 0}
-                bucket[key]["sum"] += float(val)
-                bucket[key]["count"] += 1
-    for model_dims in result.values():
-        for dim_scores in model_dims.values():
-            for key in list(dim_scores.keys()):
-                bucket = dim_scores[key]
-                dim_scores[key] = (
-                    bucket["sum"] / bucket["count"] if bucket["count"] > 0 else 0.0
+                dim_data = agg_result[model][dimension]
+                if key not in dim_data:
+                    dim_data[key] = {"sum": 0.0, "count": 0}
+                dim_data[key]["sum"] += float(val)
+                dim_data[key]["count"] += 1
+    # 转换为最终格式：计算平均值
+    result: dict[str, dict[str, dict[str, float]]] = {}
+    for model, dims in agg_result.items():
+        result[model] = {}
+        for dim, scores in dims.items():
+            result[model][dim] = {}
+            for key, agg in scores.items():
+                result[model][dim][key] = (
+                    agg["sum"] / agg["count"] if agg["count"] > 0 else 0.0
                 )
     return result
 
