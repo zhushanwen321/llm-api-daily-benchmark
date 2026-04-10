@@ -353,27 +353,6 @@ class ScoringWorker:
             "Task %d completed | dimensions=%s", task_id, list(score_results.keys())
         )
 
-        context = self._build_scoring_context(task_dict)
-        dimensions = json.loads(task_dict["scoring_dimensions"])
-
-        score_results = await self.backend.score(context, dimensions)
-
-        result_data: dict[str, Any] = {}
-        for dim, result in score_results.items():
-            result_data[dim] = {
-                "score": result.score,
-                "passed": result.passed,
-                "details": result.details,
-                "reasoning": result.reasoning,
-            }
-
-        self.db.complete_scoring_task(task_id, result_data)
-        self._update_eval_result(task_dict["result_id"], result_data)
-
-        logger.info(
-            "Task %d completed | dimensions=%s", task_id, list(score_results.keys())
-        )
-
     def _build_scoring_context(self, task_dict: dict) -> ScoringContext:
         """从数据库行构建 ScoringContext。"""
         test_cases = json.loads(task_dict.get("test_cases", "[]"))
