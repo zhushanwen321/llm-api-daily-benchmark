@@ -5,13 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from typing import Any
 
-import httpx
-
 from benchmark.models.schemas import ScoreResult, ScoringContext
 from benchmark.scorers.llm_scorer.base import LLMScorerBackend
+from benchmark.core.llm_adapter import LLMEvalAdapter
 
 logger = logging.getLogger(__name__)
 
@@ -21,33 +21,48 @@ class LLMAPIScorerBackend(LLMScorerBackend):
 
     def __init__(
         self,
-        api_key: str,
-        api_base: str = "https://api.openai.com/v1",
-        model: str = "gpt-4",
+        api_key: str | None = None,
+        api_base: str | None = None,
+        model: str | None = None,
         timeout: int = 300,
         max_retries: int = 3,
     ) -> None:
-        self.api_key = api_key
-        self.api_base = api_base.rstrip("/")
-        self.model = model
+        # 从环境变量读取配置，参数优先级高于环境变量
+        self.api_key = api_key or os.getenv("SCORING_API_KEY", "")
+        self.api_base = (
+            api_base or os.getenv("SCORING_API_BASE", "https://api.openai.com/v1")
+        ).rstrip("/")
+        raw_model = model or os.getenv("SCORING_MODEL", "gpt-4")
+
+        # 如果模型名不是 provider/model 格式，包装为 scoring/{model}
+        if "/" in raw_model:
+            self._model_name = raw_model
+        else:
+            self._model_name = f"scoring/{raw_model}"
+
         self.timeout = timeout
         self.max_retries = max_retries
-        self._client: httpx.AsyncClient | None = None
 
-    def _get_client(self) -> httpx.AsyncClient:
-        """获取或创建 httpx 客户端。"""
-        if self._client is None:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(connect=30, read=self.timeout, write=30, pool=30),
-                limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
-            )
-        return self._client
+        # 创建 LLMEvalAdapter 实例（不传递 model，避免自动调用 get_model_config）
+        self._llm = LLMEvalAdapter(
+            max_retries=max_retries,
+            timeout=timeout,
+        )
+
+        # 注册模型配置
+        config = {
+            "provider": "scoring",
+            "api_key": self.api_key,
+            "api_base": self.api_base,
+            "max_tokens": 4096,
+            "max_concurrency": 2,
+            "thinking": {},
+        }
+        self._llm.register_model_config(self._model_name, config)
 
     async def close(self) -> None:
         """关闭客户端连接。"""
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        await self._llm.close()
 
     async def __aenter__(self):
         return self
@@ -63,41 +78,24 @@ class LLMAPIScorerBackend(LLMScorerBackend):
         """对给定上下文进行多维度评分。"""
         prompt = self._build_scoring_prompt(context, dimensions)
 
-        last_error: Exception | None = None
-        for attempt in range(self.max_retries):
-            try:
-                content = await self._call_api(prompt)
-                return self._parse_result(content, dimensions)
-            except Exception as exc:
-                last_error = exc
-                if attempt < self.max_retries - 1:
-                    wait = self._calc_backoff(exc, attempt)
-                    logger.warning(
-                        f"API 调用尝试 {attempt + 1}/{self.max_retries} 失败: {exc}. "
-                        f"{wait}s 后重试..."
-                    )
-                    await asyncio.sleep(wait)
-                else:
-                    break
-
-        raise ConnectionError(
-            f"API 调用重试 {self.max_retries} 次后仍失败: {last_error}"
-        ) from last_error
+        try:
+            content = await self._call_api(prompt)
+            return self._parse_result(content, dimensions)
+        except Exception as exc:
+            logger.error(f"评分 API 调用失败: {exc}")
+            raise ConnectionError(f"评分 API 调用失败: {exc}") from exc
 
     async def health_check(self) -> bool:
         """检查 API 是否可用。"""
         try:
-            headers: dict[str, str] = {}
-            if self.api_key:
-                headers["Authorization"] = f"Bearer {self.api_key}"
-
-            client = self._get_client()
-            response = await client.get(
-                f"{self.api_base}/models",
-                headers=headers,
-                timeout=10,
+            # 使用 LLMEvalAdapter 发起一个简单的请求来验证 API 可用性
+            response = await self._llm.agenerate(
+                prompt="Hi",
+                model=self._model_name,
+                temperature=0.0,
+                max_tokens=10,
             )
-            return response.status_code == 200
+            return bool(response.content)
         except Exception as exc:
             logger.debug(f"API health check failed: {exc}")
             return False
@@ -199,40 +197,12 @@ class LLMAPIScorerBackend(LLMScorerBackend):
 
     async def _call_api(self, prompt: str) -> str:
         """调用 LLM API 并返回响应内容。"""
-        url = f"{self.api_base}/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-        }
-
-        # 尝试添加 response_format（如果支持）
-        try:
-            payload["response_format"] = {"type": "json_object"}
-        except Exception:
-            pass
-
-        client = self._get_client()
-        response = await client.post(url, json=payload, headers=headers)
-        response.raise_for_status()
-
-        data = response.json()
-        choices = data.get("choices", [])
-        if not choices:
-            raise ValueError("API 响应中没有 choices")
-
-        message = choices[0].get("message", {})
-        content = message.get("content", "")
-
-        if not content:
-            raise ValueError("API 响应内容为空")
-
-        return content
+        response = await self._llm.agenerate(
+            prompt=prompt,
+            model=self._model_name,
+            temperature=0.3,
+        )
+        return response.content
 
     def _parse_result(
         self,
@@ -302,17 +272,3 @@ class LLMAPIScorerBackend(LLMScorerBackend):
             return json_match.group(1).strip()
 
         return text.strip()
-
-    def _calc_backoff(self, exc: Exception, attempt: int) -> float:
-        """计算指数退避等待时间。"""
-        if isinstance(exc, httpx.HTTPStatusError):
-            if exc.response.status_code == 429:
-                # 检查 Retry-After 头
-                retry_after = exc.response.headers.get("Retry-After")
-                if retry_after:
-                    try:
-                        return min(float(retry_after), 120.0)
-                    except ValueError:
-                        pass
-                return min(10 * (2**attempt), 120.0)
-        return min(2 * (2**attempt), 60.0)
