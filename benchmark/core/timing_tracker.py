@@ -208,6 +208,7 @@ class TimingCollector:
 
     async def _init_db(self, db: aiosqlite.Connection) -> None:
         """初始化数据库表结构."""
+        await db.execute("PRAGMA journal_mode=WAL")
         await db.execute(
             """
             CREATE TABLE IF NOT EXISTS timing_phases (

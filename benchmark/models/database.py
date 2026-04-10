@@ -62,6 +62,8 @@ class Database:
     def _init_db(self) -> None:
         """初始化数据库表（如不存在则创建）。"""
         conn = self._get_conn()
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.commit()
         cursor = conn.cursor()
 
         # 检查 eval_results 是否缺少 model_think 列，若缺少则 drop 重建
