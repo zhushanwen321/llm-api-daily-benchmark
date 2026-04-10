@@ -42,7 +42,7 @@ from benchmark.scorers.frontend import create_frontend_composite
 from benchmark.scorers.probe_scorer import ProbeScorer
 from benchmark.scorers.reasoning import create_reasoning_composite
 
-console = Console()
+console = Console(force_terminal=True)
 logger = logging.getLogger(__name__)
 
 DIMENSION_REGISTRY: dict[str, tuple] = {
@@ -281,13 +281,25 @@ def evaluate(
     db_path = "benchmark/data/results.db"
 
     async def _run_evaluation_with_timing():
+        import sys
+
+        print("[BENCHMARK] Starting evaluation...", flush=True, file=sys.stderr)
         if async_scoring_enabled:
+            print("[BENCHMARK] Starting scoring daemon...", flush=True, file=sys.stderr)
             _start_scoring_daemon()
+            print("[BENCHMARK] Scoring daemon started", flush=True, file=sys.stderr)
         await start_timing_collection(db_path)
+        print("[BENCHMARK] Running multi-evaluation...", flush=True, file=sys.stderr)
         try:
             await _run_multi_evaluation(models, dimensions, samples, debug)
+            print("[BENCHMARK] Evaluation completed", flush=True, file=sys.stderr)
         finally:
             if async_scoring_enabled:
+                print(
+                    "[BENCHMARK] Stopping scoring daemon...",
+                    flush=True,
+                    file=sys.stderr,
+                )
                 _stop_scoring_daemon()
             await stop_timing_collection()
 
