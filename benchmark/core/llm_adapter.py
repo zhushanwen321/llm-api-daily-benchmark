@@ -37,6 +37,8 @@ class LLMEvalAdapter:
     ) -> None:
         self.max_retries = max_retries
         self.timeout = timeout
+        self._initial_429_backoff = float(os.getenv("RATE_LIMIT_INITIAL_BACKOFF", "5"))
+        self._max_429_backoff = float(os.getenv("RATE_LIMIT_MAX_BACKOFF", "120"))
         self._model_cache: dict[str, dict[str, Any]] = {}
         self._clients: dict[str, httpx.AsyncClient] = {}
         if model:
@@ -469,8 +471,8 @@ class LLMEvalAdapter:
             )
             if retry_after:
                 try:
-                    return min(float(retry_after), 120.0)
+                    return min(float(retry_after), self._max_429_backoff)
                 except ValueError:
                     pass
-            return min(10 * (2**attempt), 120.0)
-        return min(2 * (2**attempt), 120.0)
+            return min(self._initial_429_backoff * (2**attempt), self._max_429_backoff)
+        return min(2 * (2**attempt), 60.0)
