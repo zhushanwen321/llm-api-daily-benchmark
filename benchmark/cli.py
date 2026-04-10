@@ -161,6 +161,16 @@ def evaluate(
         debug = ctx.obj.get("debug", False)
     _setup_proxy()
 
+    async_scoring_enabled = (
+        os.getenv("ASYNC_SCORING_ENABLED", "false").lower() == "true"
+    )
+    if async_scoring_enabled:
+        backend_type = os.getenv("SCORING_BACKEND_TYPE", "qwen_cli")
+        logger.info(
+            f"异步评分模式已启用 | backend={backend_type} | "
+            f"评分将在独立Worker中异步执行，当前评测仅记录LLM输出"
+        )
+
     models = [m.strip() for m in model.split(",") if m.strip()]
 
     if dimension == "all":
@@ -740,7 +750,14 @@ def report(
 
     model_list = models.split(",") if models else None
     dim_list = dimensions.split(",") if dimensions else None
-    dr = tuple(date_range.split(",")) if date_range else None
+    dr: tuple[str, str] | None = None
+    if date_range:
+        parts = date_range.split(",")
+        if len(parts) == 2:
+            dr = (parts[0], parts[1])
+        else:
+            console.print("[red]日期范围格式错误，应为: YYYY-MM-DD,YYYY-MM-DD[/red]")
+            raise SystemExit(1)
 
     try:
         path = generate_html_report(
