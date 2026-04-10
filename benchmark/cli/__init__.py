@@ -279,6 +279,7 @@ def evaluate(
         dimensions = [dimension]
 
     db_path = "benchmark/data/results.db"
+    timing_db_path = "benchmark/data/timing.db"
 
     async def _run_evaluation_with_timing():
         import sys
@@ -288,7 +289,7 @@ def evaluate(
             print("[BENCHMARK] Starting scoring daemon...", flush=True, file=sys.stderr)
             _start_scoring_daemon()
             print("[BENCHMARK] Scoring daemon started", flush=True, file=sys.stderr)
-        await start_timing_collection(db_path)
+        await start_timing_collection(timing_db_path)
         print("[BENCHMARK] Running multi-evaluation...", flush=True, file=sys.stderr)
         try:
             await _run_multi_evaluation(models, dimensions, samples, debug)
