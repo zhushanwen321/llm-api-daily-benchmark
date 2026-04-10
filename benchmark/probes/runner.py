@@ -79,13 +79,7 @@ class ProbeRunner:
                     details={"error": str(e)},
                 )
 
-        semaphore = asyncio.Semaphore(5)
-
-        async def run_with_semaphore(task):
-            async with semaphore:
-                return await run_with_timeout(task)
-
-        results = await asyncio.gather(*[run_with_semaphore(task) for task in tasks])
+        results = await asyncio.gather(*[run_with_timeout(task) for task in tasks])
         return list(results)
 
     async def run_all_probes(
