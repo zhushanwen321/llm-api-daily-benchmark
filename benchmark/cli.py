@@ -7,6 +7,7 @@ import csv
 import json
 import logging
 import os
+import subprocess
 import time
 import uuid
 from datetime import datetime
@@ -112,39 +113,99 @@ def _setup_proxy() -> None:
         os.environ.setdefault("all_proxy", proxy)
 
 
-def _trigger_scoring_worker() -> None:
-    """启动评分Worker进程（非阻塞）。"""
+_scoring_worker_process: subprocess.Popen | None = None
+
+
+def _start_scoring_daemon() -> None:
+    """启动守护模式评分Worker进程（非阻塞）。"""
     import subprocess
     import sys
 
+    global _scoring_worker_process
+
+    if _scoring_worker_process is not None:
+        logger.debug("Scoring daemon already running")
+        return
+
     max_concurrency = os.getenv("SCORING_WORKER_MAX_CONCURRENCY", "3")
-    completion_delay = os.getenv("SCORING_WORKER_COMPLETION_DELAY", "10")
+    poll_interval = os.getenv("SCORING_WORKER_POLL_INTERVAL", "5")
+    signal_file = os.getenv("SCORING_SIGNAL_FILE", "/tmp/benchmark_scoring_active")
+    idle_timeout = os.getenv("SCORING_WORKER_IDLE_TIMEOUT", "30")
+
+    # 创建信号文件，告诉worker benchmark正在运行
+    Path(signal_file).touch()
 
     cmd = [
         sys.executable,
         "-m",
         "benchmark.workers.scoring_worker",
-        "--once",
         "--max-concurrency",
         max_concurrency,
-        "--completion-delay",
-        completion_delay,
+        "--poll-interval",
+        poll_interval,
+        "--signal-file",
+        signal_file,
+        "--idle-timeout",
+        idle_timeout,
     ]
 
     try:
-        subprocess.Popen(
+        _scoring_worker_process = subprocess.Popen(
             cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
         )
         logger.info(
-            "Scoring worker triggered | max_concurrency=%s | completion_delay=%ss",
+            "Scoring daemon started | pid=%d | max_concurrency=%s | signal_file=%s",
+            _scoring_worker_process.pid,
             max_concurrency,
-            completion_delay,
+            signal_file,
         )
     except Exception as e:
-        logger.warning("Failed to trigger scoring worker: %s", e)
+        logger.warning("Failed to start scoring daemon: %s", e)
+        _scoring_worker_process = None
+
+
+def _stop_scoring_daemon() -> None:
+    """停止评分Worker守护进程。"""
+    global _scoring_worker_process
+
+    signal_file = os.getenv("SCORING_SIGNAL_FILE", "/tmp/benchmark_scoring_active")
+    graceful_timeout = int(os.getenv("SCORING_WORKER_GRACEFUL_SHUTDOWN_TIMEOUT", "300"))
+
+    # 删除信号文件，让worker知道benchmark已结束
+    try:
+        Path(signal_file).unlink(missing_ok=True)
+        logger.info("Signal file removed, waiting for worker to exit...")
+    except Exception as e:
+        logger.warning("Failed to remove signal file: %s", e)
+
+    if _scoring_worker_process is None:
+        logger.debug("No scoring daemon to stop")
+        return
+
+    try:
+        # 等待worker优雅退出
+        try:
+            _scoring_worker_process.wait(timeout=graceful_timeout)
+            logger.info("Scoring daemon exited gracefully")
+        except subprocess.TimeoutExpired:
+            logger.warning(
+                "Scoring daemon did not exit within %ds, terminating...",
+                graceful_timeout,
+            )
+            _scoring_worker_process.terminate()
+            try:
+                _scoring_worker_process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                logger.error("Scoring daemon did not terminate, killing...")
+                _scoring_worker_process.kill()
+                _scoring_worker_process.wait()
+    except Exception as e:
+        logger.warning("Error stopping scoring daemon: %s", e)
+    finally:
+        _scoring_worker_process = None
 
 
 @click.group()
@@ -187,12 +248,6 @@ def cli(ctx: click.Context, debug: bool) -> None:
     default=False,
     help="启用 debug 模式（也可放在 'benchmark' 命令后）",
 )
-@click.option(
-    "--trigger-scoring",
-    is_flag=True,
-    default=False,
-    help="评测完成后自动启动评分Worker（仅异步评分模式有效）",
-)
 @click.pass_context
 def evaluate(
     ctx: click.Context,
@@ -200,7 +255,6 @@ def evaluate(
     dimension: str,
     samples: int,
     debug: bool,
-    trigger_scoring: bool,
 ) -> None:
     # 如果子命令没有指定 debug，使用父命令的设置
     if not debug:
@@ -227,17 +281,17 @@ def evaluate(
     db_path = "benchmark/data/results.db"
 
     async def _run_evaluation_with_timing():
+        if async_scoring_enabled:
+            _start_scoring_daemon()
         await start_timing_collection(db_path)
         try:
             await _run_multi_evaluation(models, dimensions, samples, debug)
         finally:
+            if async_scoring_enabled:
+                _stop_scoring_daemon()
             await stop_timing_collection()
 
     asyncio.run(_run_evaluation_with_timing())
-
-    # 触发评分Worker（如果启用）
-    if trigger_scoring and async_scoring_enabled:
-        _trigger_scoring_worker()
 
 
 async def _evaluate_task(
