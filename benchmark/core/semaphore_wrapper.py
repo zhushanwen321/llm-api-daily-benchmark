@@ -1,4 +1,8 @@
-"""Semaphore wrapper for precise wait time tracking."""
+"""DEPRECATED: Semaphore wrapper for precise wait time tracking.
+
+This module is kept for backward compatibility but is no longer used by any code.
+The timed_semaphore functionality has been superseded by timing_tracker.py.
+"""
 
 from __future__ import annotations
 
