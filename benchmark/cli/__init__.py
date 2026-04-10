@@ -411,7 +411,7 @@ async def _evaluate_task(
             # 异步评分模式：创建待评分任务
             if async_scoring_enabled:
                 scoring_dimensions = _get_scoring_dimensions(task)
-                db.create_scoring_task(
+                await db.acreate_scoring_task(
                     result_id=result_id,
                     run_id=run_id,
                     task_id=task.task_id,
@@ -542,6 +542,7 @@ async def _run_evaluation(
     dimension: str,
     samples: int,
     debug: bool,
+    db: Database | None = None,
 ) -> None:
     """异步评测主流程，使用 asyncio.gather 并发执行所有 task。"""
     adapter_cls, scorer_factory, evaluator_cls = DIMENSION_REGISTRY[dimension]
@@ -575,9 +576,11 @@ async def _run_evaluation(
         started_at=datetime.now(),
         status="running",
     )
-    db = Database()
+    own_db = db is None
+    if own_db:
+        db = Database()
     try:
-        db.create_run(run)
+        await asyncio.to_thread(db.create_run, run)
 
         coros = [
             _evaluate_task(
@@ -704,9 +707,13 @@ async def _run_evaluation(
                 logger.warning(f"聚类分析失败: {exc}")
 
         if failed_count == 0:
-            db.finish_run(run_id, "completed")
+            await asyncio.to_thread(db.finish_run, run_id, "completed")
         else:
-            db.finish_run(run_id, "partial" if failed_count < len(tasks) else "failed")
+            await asyncio.to_thread(
+                db.finish_run,
+                run_id,
+                "partial" if failed_count < len(tasks) else "failed",
+            )
 
         avg_score = total_score / len(tasks) if tasks else 0
         summary = (
@@ -720,12 +727,13 @@ async def _run_evaluation(
     except Exception:
         console.print("[red]Evaluation failed![/red]")
         try:
-            db.finish_run(run_id, "failed")
+            await asyncio.to_thread(db.finish_run, run_id, "failed")
         except Exception:
             pass
         raise
     finally:
-        db.close()
+        if own_db:
+            db.close()
         await llm.close()
 
 
@@ -742,13 +750,13 @@ def _group_by_provider(
 
 
 async def _run_provider_group(
-    tasks: list[tuple[str, str]], samples: int, debug: bool
+    tasks: list[tuple[str, str]], samples: int, debug: bool, db: Database
 ) -> None:
     """同一 provider 内的 evaluation run 并发执行。"""
     if not tasks:
         return
 
-    coros = [_run_evaluation(model, dim, samples, debug) for model, dim in tasks]
+    coros = [_run_evaluation(model, dim, samples, debug, db=db) for model, dim in tasks]
     results = await asyncio.gather(*coros, return_exceptions=True)
 
     for i, result in enumerate(results):
@@ -772,10 +780,17 @@ def _get_provider_concurrency(model: str) -> int:
 async def _run_multi_evaluation(
     models: list[str], dimensions: list[str], samples: int, debug: bool
 ) -> None:
-    """多模型 x 多维度评测。同 provider 串行，不同 provider 并行。"""
-    groups = _group_by_provider(models, dimensions)
-    coros = [_run_provider_group(tasks, samples, debug) for tasks in groups.values()]
-    await asyncio.gather(*coros)
+    """多模型 x 多维度评测。共享单一 Database 实例以避免 SQLite 写锁竞争。"""
+    db = Database()
+    try:
+        groups = _group_by_provider(models, dimensions)
+        coros = [
+            _run_provider_group(tasks, samples, debug, db=db)
+            for tasks in groups.values()
+        ]
+        await asyncio.gather(*coros)
+    finally:
+        db.close()
 
 
 @cli.command("list-datasets")
