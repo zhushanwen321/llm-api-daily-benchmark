@@ -42,9 +42,20 @@ class Database:
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
-        """获取连接。单次 Database 实例生命周期内复用同一连接."""
+        """获取连接。单次 Database 实例生命周期内复用同一连接.
+
+        使用 timeout=30 让 SQLite 在锁冲突时等待最多 30 秒，
+        避免多线程并发写入时的 "database is locked" 错误。
+        """
         if self._conn is None:
-            self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
+            self._conn = sqlite3.connect(
+                str(self.db_path),
+                check_same_thread=False,
+                timeout=30,
+            )
+            self._conn.execute("PRAGMA journal_mode=WAL")
+            self._conn.execute("PRAGMA busy_timeout=30000")
+            self._conn.commit()
         return self._conn
 
     def close(self) -> None:
