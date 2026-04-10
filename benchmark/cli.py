@@ -73,6 +73,26 @@ async def _score_with_timing(scorer: Any, ctx: Any, timing: TimingTracker) -> An
     return score_result
 
 
+def _get_scoring_dimensions(task: Any) -> list[str]:
+    """根据任务维度获取需要计算的评分维度列表。"""
+    # 基础维度：所有任务都需要答案正确性评分
+    dimensions = ["answer_correctness"]
+
+    # reasoning 维度的额外评分
+    if task.dimension == "reasoning":
+        weighted_scoring = os.getenv("WEIGHTED_SCORING", "false").lower() == "true"
+        if weighted_scoring:
+            dimensions.extend(
+                [
+                    "reasoning_completeness",
+                    "method_elegance",
+                    "difficulty_adaptation",
+                ]
+            )
+
+    return dimensions
+
+
 def _setup_proxy() -> None:
     """从 .env 加载代理配置，用于 HuggingFace 数据集下载."""
     load_dotenv()
@@ -196,11 +216,33 @@ async def _evaluate_task(
 
             # Phase 2: Score calculation
             timing.start_phase("score_calculation")
-            score_result = await _score_with_timing(scorer, ctx, timing)
+
+            async_scoring_enabled = (
+                os.getenv("ASYNC_SCORING_ENABLED", "false").lower() == "true"
+            )
+
+            if async_scoring_enabled:
+                # 异步评分模式：跳过同步评分，使用临时值
+                functional_score = 0.0
+                quality_score = 0.0
+                final_score = 0.0
+                passed = False
+                score_details = {"async_scoring": True, "status": "pending"}
+                score_reasoning = "Pending async scoring"
+            else:
+                # 原有同步评分逻辑
+                score_result = await _score_with_timing(scorer, ctx, timing)
+                functional_score = score_result.score
+                quality_score = 0.0
+                final_score = score_result.score
+                passed = score_result.passed
+                score_details = score_result.details
+                score_reasoning = getattr(score_result, "reasoning", "")
+
             timing.end_phase("score_calculation")
 
             logger.debug(
-                f"任务 {task.task_id} 评分结果: score={score_result.score}, passed={score_result.passed}"
+                f"任务 {task.task_id} 评分结果: score={final_score}, passed={passed}"
             )
 
             # Phase 3: DB write
@@ -213,15 +255,34 @@ async def _evaluate_task(
                 model_output=ctx.raw_output,
                 model_think=ctx.reasoning_content,
                 model_answer=ctx.model_answer,
-                expected_output=task.expected_output,  # 保存期望答案
-                functional_score=score_result.score,
-                final_score=score_result.score,
-                passed=score_result.passed,
-                details=score_result.details,
+                expected_output=task.expected_output,
+                functional_score=functional_score,
+                final_score=final_score,
+                passed=passed,
+                details=score_details,
                 execution_time=api_duration,
                 created_at=datetime.now(),
             )
             await db.asave_result(result)
+
+            # 异步评分模式：创建待评分任务
+            if async_scoring_enabled:
+                scoring_dimensions = _get_scoring_dimensions(task)
+                db.create_scoring_task(
+                    result_id=result_id,
+                    run_id=run_id,
+                    task_id=task.task_id,
+                    dimension=task.dimension,
+                    dataset=task.dataset,
+                    prompt=task.prompt,
+                    expected_output=task.expected_output,
+                    model_output=ctx.raw_output,
+                    model_answer=ctx.model_answer,
+                    reasoning_content=ctx.reasoning_content or "",
+                    test_cases=task.test_cases,
+                    metadata=task.metadata,
+                    scoring_dimensions=scoring_dimensions,
+                )
 
             tps = gm.get("tokens_per_second", 0.0)
             await db.asave_metrics(
@@ -267,12 +328,10 @@ async def _evaluate_task(
                     f"total={effective_total:.1f}s"
                 )
 
-            status_icon = (
-                "[green]PASS[/green]" if score_result.passed else "[red]FAIL[/red]"
-            )
+            status_icon = "[green]PASS[/green]" if passed else "[red]FAIL[/red]"
             console.print(
                 f"  [{task_idx + 1}/{total}] {task.task_id} | "
-                f"Score: {score_result.score:.0f} | {status_icon} | "
+                f"Score: {final_score:.0f} | {status_icon} | "
                 f"Time: {effective_total:.1f}s | "
                 f"TTFT-R: {gm.get('ttft', 0.0):.2f}s | "
                 f"TTFT-C: {gm.get('ttft_content', 0.0):.2f}s | "
@@ -280,8 +339,8 @@ async def _evaluate_task(
             )
 
             return {
-                "score": score_result.score,
-                "passed": score_result.passed,
+                "score": final_score,
+                "passed": passed,
                 "task_id": task.task_id,
             }
         except Exception as exc:
