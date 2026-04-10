@@ -254,6 +254,41 @@ class Database:
             "CREATE INDEX IF NOT EXISTS idx_tp_created_at ON timing_phases(created_at)"
         )
 
+        # ── pending_scoring_tasks ──
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pending_scoring_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                dimension TEXT NOT NULL,
+                dataset TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                expected_output TEXT NOT NULL,
+                model_output TEXT NOT NULL,
+                model_answer TEXT NOT NULL,
+                reasoning_content TEXT DEFAULT '',
+                test_cases TEXT DEFAULT '[]',
+                metadata TEXT DEFAULT '{}',
+                scoring_dimensions TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                retry_count INTEGER DEFAULT 0,
+                max_retries INTEGER DEFAULT 3,
+                score_result TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT,
+                processing_started_at TEXT,
+                processing_finished_at TEXT,
+                result_id TEXT NOT NULL,
+                run_id TEXT NOT NULL
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pst_status_created ON pending_scoring_tasks(status, created_at)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pst_result_id ON pending_scoring_tasks(result_id)"
+        )
+
         conn.commit()
 
     def create_run(self, run: EvalRun) -> str:
@@ -740,3 +775,190 @@ class Database:
 
         df = pd.read_sql_query(query, conn, params=params)
         return df
+
+    # ── pending_scoring_tasks ──
+
+    def create_scoring_task(
+        self,
+        result_id: str,
+        run_id: str,
+        task_id: str,
+        dimension: str,
+        dataset: str,
+        prompt: str,
+        expected_output: str,
+        model_output: str,
+        model_answer: str,
+        reasoning_content: str = "",
+        test_cases: list[str] | None = None,
+        metadata: dict | None = None,
+        scoring_dimensions: list[str] | None = None,
+    ) -> int:
+        """创建待评分任务，返回任务ID。"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        test_cases = test_cases if test_cases is not None else []
+        metadata = metadata if metadata is not None else {}
+        scoring_dimensions = (
+            scoring_dimensions if scoring_dimensions is not None else []
+        )
+
+        cursor = conn.execute(
+            """INSERT INTO pending_scoring_tasks
+               (result_id, run_id, task_id, dimension, dataset, prompt,
+                expected_output, model_output, model_answer, reasoning_content,
+                test_cases, metadata, scoring_dimensions, status, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                result_id,
+                run_id,
+                task_id,
+                dimension,
+                dataset,
+                prompt,
+                expected_output,
+                model_output,
+                model_answer,
+                reasoning_content,
+                json.dumps(test_cases, ensure_ascii=False),
+                json.dumps(metadata, ensure_ascii=False),
+                json.dumps(scoring_dimensions, ensure_ascii=False),
+                "pending",
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return cursor.lastrowid or 0
+
+    def fetch_pending_scoring_tasks(self, limit: int = 10) -> list[dict]:
+        """拉取待处理任务并原子锁定（设为processing）。"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+
+        # 获取待处理任务
+        cursor = conn.execute(
+            "SELECT id FROM pending_scoring_tasks WHERE status = 'pending' ORDER BY created_at ASC LIMIT ?",
+            (limit,),
+        )
+        ids = [row[0] for row in cursor.fetchall()]
+
+        if not ids:
+            return []
+
+        # 原子锁定
+        placeholders = ",".join("?" * len(ids))
+        conn.execute(
+            f"UPDATE pending_scoring_tasks SET status = 'processing', processing_started_at = ?, updated_at = ? WHERE id IN ({placeholders})",
+            [now, now] + ids,
+        )
+        conn.commit()
+
+        # 返回锁定的任务
+        cursor = conn.execute(
+            f"SELECT * FROM pending_scoring_tasks WHERE id IN ({placeholders})",
+            ids,
+        )
+        columns = [desc[0] for desc in cursor.description]
+        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+    def complete_scoring_task(self, task_id: int, score_result: dict) -> None:
+        """标记任务完成，保存评分结果。"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        conn.execute(
+            """UPDATE pending_scoring_tasks
+               SET status = 'completed',
+                   score_result = ?,
+                   processing_finished_at = ?,
+                   updated_at = ?
+               WHERE id = ?""",
+            (json.dumps(score_result, ensure_ascii=False), now, now, task_id),
+        )
+        conn.commit()
+
+    def fail_scoring_task(self, task_id: int, error_message: str) -> None:
+        """标记任务失败。"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        conn.execute(
+            """UPDATE pending_scoring_tasks
+               SET status = 'failed',
+                   error_message = ?,
+                   updated_at = ?
+               WHERE id = ?""",
+            (error_message, now, task_id),
+        )
+        conn.commit()
+
+    def retry_scoring_task(self, task_id: int) -> None:
+        """将任务重置为pending以便重试。"""
+        conn = self._get_conn()
+        now = datetime.now().isoformat()
+        conn.execute(
+            """UPDATE pending_scoring_tasks
+               SET status = 'pending',
+                   retry_count = retry_count + 1,
+                   processing_started_at = NULL,
+                   updated_at = ?
+               WHERE id = ?""",
+            (now, task_id),
+        )
+        conn.commit()
+
+    def get_pending_task_count(self) -> int:
+        """获取待处理任务数量。"""
+        conn = self._get_conn()
+        cursor = conn.execute(
+            "SELECT COUNT(*) FROM pending_scoring_tasks WHERE status = 'pending'"
+        )
+        row = cursor.fetchone()
+        return row[0] if row else 0
+
+    async def acreate_scoring_task(
+        self,
+        result_id: str,
+        run_id: str,
+        task_id: str,
+        dimension: str,
+        dataset: str,
+        prompt: str,
+        expected_output: str,
+        model_output: str,
+        model_answer: str,
+        reasoning_content: str = "",
+        test_cases: list[str] | None = None,
+        metadata: dict | None = None,
+        scoring_dimensions: list[str] | None = None,
+    ) -> int:
+        return await asyncio.to_thread(
+            self.create_scoring_task,
+            result_id,
+            run_id,
+            task_id,
+            dimension,
+            dataset,
+            prompt,
+            expected_output,
+            model_output,
+            model_answer,
+            reasoning_content,
+            test_cases,
+            metadata,
+            scoring_dimensions,
+        )
+
+    async def afetch_pending_scoring_tasks(self, limit: int = 10) -> list[dict]:
+        return await asyncio.to_thread(self.fetch_pending_scoring_tasks, limit)
+
+    async def acomplete_scoring_task(self, task_id: int, score_result: dict) -> None:
+        await asyncio.to_thread(self.complete_scoring_task, task_id, score_result)
+
+    async def afail_scoring_task(self, task_id: int, error_message: str) -> None:
+        await asyncio.to_thread(self.fail_scoring_task, task_id, error_message)
+
+    async def aretry_scoring_task(self, task_id: int) -> None:
+        await asyncio.to_thread(self.retry_scoring_task, task_id)
+
+    async def aget_pending_task_count(self) -> int:
+        return await asyncio.to_thread(self.get_pending_task_count)
