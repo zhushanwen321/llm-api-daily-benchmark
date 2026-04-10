@@ -11,16 +11,20 @@ import json
 import logging
 import sqlite3
 import threading
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 import pandas as pd
 
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 
 logger = logging.getLogger(__name__)
+
+_DB_LOCKED_RETRY_ATTEMPTS = 5
+_DB_LOCKED_BASE_DELAY = 0.5
 
 
 class Database:
@@ -40,7 +44,7 @@ class Database:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: sqlite3.Connection | None = None
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._init_db()
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -53,12 +57,39 @@ class Database:
             self._conn = sqlite3.connect(
                 str(self.db_path),
                 check_same_thread=False,
-                timeout=30,
+                timeout=120,
             )
             self._conn.execute("PRAGMA journal_mode=WAL")
-            self._conn.execute("PRAGMA busy_timeout=30000")
+            self._conn.execute("PRAGMA busy_timeout=120000")
             self._conn.commit()
         return self._conn
+
+    def _write(self, func: Any, *args: Any, **kwargs: Any) -> Any:
+        """写入操作：threading.Lock 序列化 + 跨进程锁重试。"""
+        for attempt in range(_DB_LOCKED_RETRY_ATTEMPTS):
+            try:
+                with self._lock:
+                    result = func(*args, **kwargs)
+                if attempt > 0:
+                    logger.info(
+                        "database write succeeded after retry (attempt %d/%d)",
+                        attempt + 1,
+                        _DB_LOCKED_RETRY_ATTEMPTS,
+                    )
+                return result
+            except sqlite3.OperationalError as e:
+                if "database is locked" not in str(e):
+                    raise
+                if attempt >= _DB_LOCKED_RETRY_ATTEMPTS - 1:
+                    raise
+                logger.warning(
+                    "database is locked, retrying in %.1fs (attempt %d/%d)",
+                    _DB_LOCKED_BASE_DELAY * (2**attempt),
+                    attempt + 1,
+                    _DB_LOCKED_RETRY_ATTEMPTS,
+                )
+            time.sleep(_DB_LOCKED_BASE_DELAY * (2**attempt))
+        return None  # unreachable
 
     def close(self) -> None:
         """关闭数据库连接."""
@@ -74,237 +105,257 @@ class Database:
 
     def _init_db(self) -> None:
         """初始化数据库表（如不存在则创建）。"""
-        with self._lock:
-            conn = self._get_conn()
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.commit()
-            cursor = conn.cursor()
-
-            needs_rebuild = False
+        for attempt in range(_DB_LOCKED_RETRY_ATTEMPTS):
             try:
-                cursor.execute("SELECT model_think FROM eval_results LIMIT 1")
+                self._init_db_inner()
+                return
+            except sqlite3.OperationalError as e:
+                if "database is locked" not in str(e):
+                    raise
+                if attempt < _DB_LOCKED_RETRY_ATTEMPTS - 1:
+                    delay = _DB_LOCKED_BASE_DELAY * (2**attempt)
+                    logger.warning(
+                        "_init_db: database is locked, retrying in %.1fs (attempt %d/%d)",
+                        delay,
+                        attempt + 1,
+                        _DB_LOCKED_RETRY_ATTEMPTS,
+                    )
+                    time.sleep(delay)
+                else:
+                    raise
+
+    def _init_db_inner(self) -> None:
+        conn = self._get_conn()
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.commit()
+        cursor = conn.cursor()
+
+        needs_rebuild = False
+        try:
+            cursor.execute("SELECT model_think FROM eval_results LIMIT 1")
+        except sqlite3.OperationalError:
+            needs_rebuild = True
+
+        if not needs_rebuild:
+            try:
+                cursor.execute("SELECT expected_output FROM eval_results LIMIT 1")
             except sqlite3.OperationalError:
                 needs_rebuild = True
 
-            if not needs_rebuild:
-                try:
-                    cursor.execute("SELECT expected_output FROM eval_results LIMIT 1")
-                except sqlite3.OperationalError:
-                    needs_rebuild = True
+        if needs_rebuild:
+            cursor.execute("DROP TABLE IF EXISTS api_call_metrics")
+            cursor.execute("DROP TABLE IF EXISTS eval_results")
+            cursor.execute("DROP TABLE IF EXISTS eval_runs")
 
-            if needs_rebuild:
-                cursor.execute("DROP TABLE IF EXISTS api_call_metrics")
-                cursor.execute("DROP TABLE IF EXISTS eval_results")
-                cursor.execute("DROP TABLE IF EXISTS eval_runs")
+        metrics_needs_rebuild = False
+        try:
+            cursor.execute("SELECT reasoning_tokens FROM api_call_metrics LIMIT 1")
+        except sqlite3.OperationalError:
+            metrics_needs_rebuild = True
 
-            metrics_needs_rebuild = False
+        if metrics_needs_rebuild:
+            cursor.execute("DROP TABLE IF EXISTS api_call_metrics")
+
+        try:
+            cursor.execute("SELECT ttft FROM api_call_metrics LIMIT 1")
+        except sqlite3.OperationalError:
             try:
-                cursor.execute("SELECT reasoning_tokens FROM api_call_metrics LIMIT 1")
+                cursor.execute(
+                    "ALTER TABLE api_call_metrics ADD COLUMN ttft REAL NOT NULL DEFAULT 0"
+                )
             except sqlite3.OperationalError:
-                metrics_needs_rebuild = True
+                pass
 
-            if metrics_needs_rebuild:
-                cursor.execute("DROP TABLE IF EXISTS api_call_metrics")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS eval_runs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT UNIQUE NOT NULL,
+                model TEXT NOT NULL,
+                dimension TEXT NOT NULL,
+                dataset TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT,
+                status TEXT NOT NULL DEFAULT 'running',
+                config_snapshot TEXT
+            )
+        """)
 
-            try:
-                cursor.execute("SELECT ttft FROM api_call_metrics LIMIT 1")
-            except sqlite3.OperationalError:
-                try:
-                    cursor.execute(
-                        "ALTER TABLE api_call_metrics ADD COLUMN ttft REAL NOT NULL DEFAULT 0"
-                    )
-                except sqlite3.OperationalError:
-                    pass
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS eval_results (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                result_id TEXT UNIQUE NOT NULL,
+                run_id TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                task_content TEXT,
+                model_output TEXT,
+                model_think TEXT DEFAULT '',
+                model_answer TEXT DEFAULT '',
+                expected_output TEXT DEFAULT '',
+                functional_score REAL NOT NULL DEFAULT 0,
+                quality_score REAL NOT NULL DEFAULT 0,
+                final_score REAL NOT NULL DEFAULT 0,
+                passed INTEGER NOT NULL DEFAULT 0,
+                details TEXT,
+                execution_time REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (run_id) REFERENCES eval_runs(run_id)
+            )
+        """)
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS eval_runs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    run_id TEXT UNIQUE NOT NULL,
-                    model TEXT NOT NULL,
-                    dimension TEXT NOT NULL,
-                    dataset TEXT NOT NULL,
-                    started_at TEXT NOT NULL,
-                    finished_at TEXT,
-                    status TEXT NOT NULL DEFAULT 'running',
-                    config_snapshot TEXT
-                )
-            """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_call_metrics (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                result_id TEXT UNIQUE NOT NULL,
+                prompt_tokens INTEGER NOT NULL DEFAULT 0,
+                completion_tokens INTEGER NOT NULL DEFAULT 0,
+                reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+                reasoning_content TEXT DEFAULT '',
+                duration REAL NOT NULL DEFAULT 0,
+                tokens_per_second REAL NOT NULL DEFAULT 0,
+                ttft REAL NOT NULL DEFAULT 0,
+                ttft_content REAL NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (result_id) REFERENCES eval_results(result_id)
+            )
+        """)
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS eval_results (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    result_id TEXT UNIQUE NOT NULL,
-                    run_id TEXT NOT NULL,
-                    task_id TEXT NOT NULL,
-                    task_content TEXT,
-                    model_output TEXT,
-                    model_think TEXT DEFAULT '',
-                    model_answer TEXT DEFAULT '',
-                    expected_output TEXT DEFAULT '',
-                    functional_score REAL NOT NULL DEFAULT 0,
-                    quality_score REAL NOT NULL DEFAULT 0,
-                    final_score REAL NOT NULL DEFAULT 0,
-                    passed INTEGER NOT NULL DEFAULT 0,
-                    details TEXT,
-                    execution_time REAL NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (run_id) REFERENCES eval_runs(run_id)
-                )
-            """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS quality_signals (
+                signal_id TEXT PRIMARY KEY,
+                result_id TEXT NOT NULL REFERENCES eval_results(result_id),
+                format_compliance REAL DEFAULT 0,
+                repetition_ratio REAL DEFAULT 0,
+                garbled_text_ratio REAL DEFAULT 0,
+                refusal_detected INTEGER DEFAULT 0,
+                language_consistency REAL DEFAULT 1.0,
+                output_length_zscore REAL DEFAULT 0,
+                thinking_ratio REAL DEFAULT 0,
+                empty_reasoning INTEGER DEFAULT 0,
+                truncated INTEGER DEFAULT 0,
+                token_efficiency_zscore REAL DEFAULT 0,
+                tps_zscore REAL DEFAULT 0,
+                ttft_zscore REAL DEFAULT 0,
+                answer_entropy REAL DEFAULT 0,
+                raw_output_length INTEGER DEFAULT 0,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qs_result_id ON quality_signals(result_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_qs_created_at ON quality_signals(created_at)"
+        )
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS api_call_metrics (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    result_id TEXT UNIQUE NOT NULL,
-                    prompt_tokens INTEGER NOT NULL DEFAULT 0,
-                    completion_tokens INTEGER NOT NULL DEFAULT 0,
-                    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
-                    reasoning_content TEXT DEFAULT '',
-                    duration REAL NOT NULL DEFAULT 0,
-                    tokens_per_second REAL NOT NULL DEFAULT 0,
-                    ttft REAL NOT NULL DEFAULT 0,
-                    ttft_content REAL NOT NULL DEFAULT 0,
-                    created_at TEXT NOT NULL,
-                    FOREIGN KEY (result_id) REFERENCES eval_results(result_id)
-                )
-            """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS stability_reports (
+                report_id TEXT PRIMARY KEY,
+                model TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                overall_status TEXT NOT NULL,
+                anomalies TEXT NOT NULL DEFAULT '[]',
+                change_points TEXT NOT NULL DEFAULT '[]',
+                stat_tests TEXT NOT NULL DEFAULT '[]',
+                summary TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sr_model ON stability_reports(model)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_sr_run_id ON stability_reports(run_id)"
+        )
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS quality_signals (
-                    signal_id TEXT PRIMARY KEY,
-                    result_id TEXT NOT NULL REFERENCES eval_results(result_id),
-                    format_compliance REAL DEFAULT 0,
-                    repetition_ratio REAL DEFAULT 0,
-                    garbled_text_ratio REAL DEFAULT 0,
-                    refusal_detected INTEGER DEFAULT 0,
-                    language_consistency REAL DEFAULT 1.0,
-                    output_length_zscore REAL DEFAULT 0,
-                    thinking_ratio REAL DEFAULT 0,
-                    empty_reasoning INTEGER DEFAULT 0,
-                    truncated INTEGER DEFAULT 0,
-                    token_efficiency_zscore REAL DEFAULT 0,
-                    tps_zscore REAL DEFAULT 0,
-                    ttft_zscore REAL DEFAULT 0,
-                    answer_entropy REAL DEFAULT 0,
-                    raw_output_length INTEGER DEFAULT 0,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_qs_result_id ON quality_signals(result_id)"
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS cluster_reports (
+                report_id TEXT PRIMARY KEY,
+                model TEXT NOT NULL,
+                n_clusters INTEGER NOT NULL,
+                n_noise INTEGER NOT NULL DEFAULT 0,
+                clusters TEXT NOT NULL DEFAULT '[]',
+                suspected_changes TEXT NOT NULL DEFAULT '[]',
+                summary TEXT NOT NULL DEFAULT '',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_qs_created_at ON quality_signals(created_at)"
-            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cr_model ON cluster_reports(model)"
+        )
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS stability_reports (
-                    report_id TEXT PRIMARY KEY,
-                    model TEXT NOT NULL,
-                    run_id TEXT NOT NULL,
-                    overall_status TEXT NOT NULL,
-                    anomalies TEXT NOT NULL DEFAULT '[]',
-                    change_points TEXT NOT NULL DEFAULT '[]',
-                    stat_tests TEXT NOT NULL DEFAULT '[]',
-                    summary TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_sr_model ON stability_reports(model)"
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS timing_phases (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                result_id TEXT NOT NULL,
+                run_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                task_id TEXT NOT NULL,
+                phase_name TEXT NOT NULL,
+                start_time REAL NOT NULL,
+                end_time REAL NOT NULL,
+                duration REAL NOT NULL,
+                wait_time REAL NOT NULL,
+                active_time REAL NOT NULL,
+                metadata TEXT,
+                created_at TEXT NOT NULL
             )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_sr_run_id ON stability_reports(run_id)"
-            )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_model ON timing_phases(model)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_run_id ON timing_phases(run_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_result_id ON timing_phases(result_id)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_phase_name ON timing_phases(phase_name)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_tp_created_at ON timing_phases(created_at)"
+        )
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS cluster_reports (
-                    report_id TEXT PRIMARY KEY,
-                    model TEXT NOT NULL,
-                    n_clusters INTEGER NOT NULL,
-                    n_noise INTEGER NOT NULL DEFAULT 0,
-                    clusters TEXT NOT NULL DEFAULT '[]',
-                    suspected_changes TEXT NOT NULL DEFAULT '[]',
-                    summary TEXT NOT NULL DEFAULT '',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                )
-            """)
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_cr_model ON cluster_reports(model)"
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pending_scoring_tasks (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                dimension TEXT NOT NULL,
+                dataset TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                expected_output TEXT NOT NULL,
+                model_output TEXT NOT NULL,
+                model_answer TEXT NOT NULL,
+                reasoning_content TEXT DEFAULT '',
+                test_cases TEXT DEFAULT '[]',
+                metadata TEXT DEFAULT '{}',
+                scoring_dimensions TEXT NOT NULL,
+                status TEXT DEFAULT 'pending',
+                retry_count INTEGER DEFAULT 0,
+                max_retries INTEGER DEFAULT 3,
+                score_result TEXT,
+                error_message TEXT,
+                created_at TEXT NOT NULL,
+                updated_at TEXT,
+                processing_started_at TEXT,
+                processing_finished_at TEXT,
+                result_id TEXT NOT NULL,
+                run_id TEXT NOT NULL
             )
+        """)
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pst_status_created ON pending_scoring_tasks(status, created_at)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_pst_result_id ON pending_scoring_tasks(result_id)"
+        )
 
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS timing_phases (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    result_id TEXT NOT NULL,
-                    run_id TEXT NOT NULL,
-                    model TEXT NOT NULL,
-                    task_id TEXT NOT NULL,
-                    phase_name TEXT NOT NULL,
-                    start_time REAL NOT NULL,
-                    end_time REAL NOT NULL,
-                    duration REAL NOT NULL,
-                    wait_time REAL NOT NULL,
-                    active_time REAL NOT NULL,
-                    metadata TEXT,
-                    created_at TEXT NOT NULL
-                )
-            """)
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tp_model ON timing_phases(model)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tp_run_id ON timing_phases(run_id)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tp_result_id ON timing_phases(result_id)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tp_phase_name ON timing_phases(phase_name)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_tp_created_at ON timing_phases(created_at)"
-            )
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS pending_scoring_tasks (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    task_id TEXT NOT NULL,
-                    dimension TEXT NOT NULL,
-                    dataset TEXT NOT NULL,
-                    prompt TEXT NOT NULL,
-                    expected_output TEXT NOT NULL,
-                    model_output TEXT NOT NULL,
-                    model_answer TEXT NOT NULL,
-                    reasoning_content TEXT DEFAULT '',
-                    test_cases TEXT DEFAULT '[]',
-                    metadata TEXT DEFAULT '{}',
-                    scoring_dimensions TEXT NOT NULL,
-                    status TEXT DEFAULT 'pending',
-                    retry_count INTEGER DEFAULT 0,
-                    max_retries INTEGER DEFAULT 3,
-                    score_result TEXT,
-                    error_message TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT,
-                    processing_started_at TEXT,
-                    processing_finished_at TEXT,
-                    result_id TEXT NOT NULL,
-                    run_id TEXT NOT NULL
-                )
-            """)
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_pst_status_created ON pending_scoring_tasks(status, created_at)"
-            )
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_pst_result_id ON pending_scoring_tasks(result_id)"
-            )
-
-            conn.commit()
+        conn.commit()
 
     def create_run(self, run: EvalRun) -> str:
         """创建评测运行记录。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             conn.execute(
                 """INSERT INTO eval_runs
@@ -323,9 +374,12 @@ class Database:
             conn.commit()
             return run.run_id
 
+        return self._write(_do)
+
     def finish_run(self, run_id: str, status: str = "completed") -> None:
         """标记运行记录为已完成。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             conn.execute(
                 "UPDATE eval_runs SET finished_at = ?, status = ? WHERE run_id = ?",
@@ -333,9 +387,12 @@ class Database:
             )
             conn.commit()
 
+        self._write(_do)
+
     def save_result(self, result: EvalResult) -> str:
         """保存单题评测结果。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             conn.execute(
                 """INSERT INTO eval_results
@@ -365,9 +422,12 @@ class Database:
             conn.commit()
             return result.result_id
 
+        return self._write(_do)
+
     def save_metrics(self, metrics: ApiCallMetrics) -> str:
         """保存 API 调用的 token 指标。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             conn.execute(
                 """INSERT INTO api_call_metrics
@@ -390,6 +450,8 @@ class Database:
             )
             conn.commit()
             return metrics.result_id
+
+        return self._write(_do)
 
     async def asave_result(self, result: EvalResult) -> str:
         """异步保存单题评测结果。"""
@@ -452,7 +514,8 @@ class Database:
 
     def _save_quality_signals(self, signals: dict) -> str:
         """同步写入一条 quality_signals 记录。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             signal_id = str(uuid.uuid4())[:12]
             conn.execute(
@@ -485,6 +548,8 @@ class Database:
             conn.commit()
             return signal_id
 
+        return self._write(_do)
+
     async def asave_quality_signals(self, signals: dict) -> str:
         """异步写入 quality_signals 记录。"""
         return await asyncio.to_thread(self._save_quality_signals, signals)
@@ -496,7 +561,8 @@ class Database:
         from benchmark.analysis.models import StabilityReport
 
         assert isinstance(report, StabilityReport)
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             report_id = str(uuid.uuid4())[:12]
             anomalies = json.dumps(
@@ -542,6 +608,8 @@ class Database:
             )
             conn.commit()
             return report_id
+
+        return self._write(_do)
 
     async def asave_stability_report(self, report: object) -> str:
         """异步写入 stability_reports 记录。"""
@@ -616,7 +684,8 @@ class Database:
         from benchmark.analysis.models import ClusterReport
 
         assert isinstance(report, ClusterReport)
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             report_id = str(uuid.uuid4())[:12]
             clusters = json.dumps(
@@ -649,6 +718,8 @@ class Database:
             )
             conn.commit()
             return report_id
+
+        return self._write(_do)
 
     async def asave_cluster_report(self, report: object) -> str:
         """异步写入 cluster_reports 记录。"""
@@ -813,14 +884,13 @@ class Database:
         scoring_dimensions: list[str] | None = None,
     ) -> int:
         """创建待评分任务，返回任务ID。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             now = datetime.now().isoformat()
-            test_cases = test_cases if test_cases is not None else []
-            metadata = metadata if metadata is not None else {}
-            scoring_dimensions = (
-                scoring_dimensions if scoring_dimensions is not None else []
-            )
+            tc = test_cases if test_cases is not None else []
+            md = metadata if metadata is not None else {}
+            sd = scoring_dimensions if scoring_dimensions is not None else []
 
             cursor = conn.execute(
                 """INSERT INTO pending_scoring_tasks
@@ -839,9 +909,9 @@ class Database:
                     model_output,
                     model_answer,
                     reasoning_content,
-                    json.dumps(test_cases, ensure_ascii=False),
-                    json.dumps(metadata, ensure_ascii=False),
-                    json.dumps(scoring_dimensions, ensure_ascii=False),
+                    json.dumps(tc, ensure_ascii=False),
+                    json.dumps(md, ensure_ascii=False),
+                    json.dumps(sd, ensure_ascii=False),
                     "pending",
                     now,
                     now,
@@ -850,9 +920,12 @@ class Database:
             conn.commit()
             return cursor.lastrowid or 0
 
+        return self._write(_do)
+
     def fetch_pending_scoring_tasks(self, limit: int = 10) -> list[dict]:
         """拉取待处理任务并原子锁定（设为processing）。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             now = datetime.now().isoformat()
 
@@ -879,9 +952,12 @@ class Database:
             columns = [desc[0] for desc in cursor.description]
             return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
+        return self._write(_do)
+
     def complete_scoring_task(self, task_id: int, score_result: dict) -> None:
         """标记任务完成，保存评分结果。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             now = datetime.now().isoformat()
             conn.execute(
@@ -895,9 +971,12 @@ class Database:
             )
             conn.commit()
 
+        self._write(_do)
+
     def fail_scoring_task(self, task_id: int, error_message: str) -> None:
         """标记任务失败。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             now = datetime.now().isoformat()
             conn.execute(
@@ -910,9 +989,12 @@ class Database:
             )
             conn.commit()
 
+        self._write(_do)
+
     def retry_scoring_task(self, task_id: int) -> None:
         """将任务重置为pending以便重试。"""
-        with self._lock:
+
+        def _do():
             conn = self._get_conn()
             now = datetime.now().isoformat()
             conn.execute(
@@ -925,6 +1007,8 @@ class Database:
                 (now, task_id),
             )
             conn.commit()
+
+        self._write(_do)
 
     def get_pending_task_count(self) -> int:
         """获取待处理任务数量。"""

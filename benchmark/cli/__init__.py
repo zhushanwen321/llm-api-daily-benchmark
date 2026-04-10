@@ -780,15 +780,19 @@ def _get_provider_concurrency(model: str) -> int:
 async def _run_multi_evaluation(
     models: list[str], dimensions: list[str], samples: int, debug: bool
 ) -> None:
-    """多模型 x 多维度评测。共享单一 Database 实例以避免 SQLite 写锁竞争。"""
+    """多模型 x 多维度评测。共享单一 Database 实例以避免 SQLite 写锁竞争。
+
+    注意：维度之间串行执行，避免过多并发导致 SQLite 锁竞争。
+    每个维度内部的任务仍然并发执行。
+    """
     db = Database()
     try:
         groups = _group_by_provider(models, dimensions)
-        coros = [
-            _run_provider_group(tasks, samples, debug, db=db)
-            for tasks in groups.values()
-        ]
-        await asyncio.gather(*coros)
+        # 串行执行每个 provider 组的维度，避免 SQLite 锁竞争
+        for provider, tasks in groups.items():
+            logger.info(f"[EVAL] 开始评测 provider: {provider} | 维度数: {len(tasks)}")
+            await _run_provider_group(tasks, samples, debug, db=db)
+            logger.info(f"[EVAL] 完成评测 provider: {provider}")
     finally:
         db.close()
 
