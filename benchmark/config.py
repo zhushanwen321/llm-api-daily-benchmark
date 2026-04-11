@@ -11,18 +11,52 @@ import yaml
 
 
 _CONFIG_DIR = Path(__file__).parent / "configs"
+_SETTINGS_PATH = _CONFIG_DIR / "settings.yml"
+
+
+def load_settings(settings_path: str | Path | None = None) -> dict[str, Any]:
+    """加载统一配置文件 settings.yml。
+
+    Args:
+        settings_path: 配置文件路径。为 None 时使用 configs/settings.yml。
+
+    Returns:
+        包含 defaults, model_defaults, providers 等区段的配置字典。
+    """
+    path = Path(settings_path) if settings_path else _SETTINGS_PATH
+    if not path.exists():
+        raise FileNotFoundError(f"Settings file not found: {path}")
+    with open(path) as f:
+        return yaml.safe_load(f)
 
 
 def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
-    """加载默认配置，可被指定路径覆盖。
+    """加载默认配置。
+
+    当传入显式路径时直接加载该文件；否则优先从 settings.yml 的 defaults 区段读取，
+    如 settings.yml 不存在则回退到 default.yaml（已废弃）。
 
     Args:
-        config_path: 配置文件路径。为 None 时使用 configs/default.yaml。
+        config_path: 配置文件路径。为 None 时自动检测。
 
     Returns:
         配置字典。
     """
-    path = Path(config_path) if config_path else _CONFIG_DIR / "default.yaml"
+    if config_path is not None:
+        path = Path(config_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Config file not found: {path}")
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        if isinstance(data, dict) and "model_defaults" in data:
+            return data.get("defaults", {})
+        return data
+
+    if _SETTINGS_PATH.exists():
+        settings = load_settings(_SETTINGS_PATH)
+        return settings.get("defaults", {})
+
+    path = _CONFIG_DIR / "default.yaml"
     if not path.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
     with open(path) as f:
@@ -32,13 +66,39 @@ def load_config(config_path: str | Path | None = None) -> dict[str, Any]:
 def load_models_config(models_path: str | Path | None = None) -> dict[str, Any]:
     """加载模型 API 配置。
 
+    当传入显式路径时直接加载该文件；否则优先从 settings.yml 构造，
+    如 settings.yml 不存在则回退到 models.yaml（已废弃）。
+
     Args:
-        models_path: 模型配置路径。为 None 时使用 configs/models.yaml。
+        models_path: 模型配置路径。为 None 时自动检测。
 
     Returns:
         模型配置字典（providers -> models 两层结构）。
     """
-    path = Path(models_path) if models_path else _CONFIG_DIR / "models.yaml"
+    if models_path is not None:
+        path = Path(models_path)
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Models config not found: {path}. "
+                "Copy configs/models.yaml.example to configs/models.yaml and fill in your API keys."
+            )
+        with open(path) as f:
+            data = yaml.safe_load(f)
+        if isinstance(data, dict) and "model_defaults" in data:
+            return {
+                "defaults": data.get("model_defaults", {}),
+                "providers": data.get("providers", {}),
+            }
+        return data
+
+    if _SETTINGS_PATH.exists():
+        settings = load_settings(_SETTINGS_PATH)
+        return {
+            "defaults": settings.get("model_defaults", {}),
+            "providers": settings.get("providers", {}),
+        }
+
+    path = _CONFIG_DIR / "models.yaml"
     if not path.exists():
         raise FileNotFoundError(
             f"Models config not found: {path}. "
@@ -66,12 +126,14 @@ def _resolve_env_var(value: str, field_name: str = "api_key") -> str:
     return value
 
 
-def get_model_config(model_name: str, models_path: str | Path | None = None) -> dict[str, Any]:
+def get_model_config(
+    model_name: str, models_path: str | Path | None = None
+) -> dict[str, Any]:
     """获取指定模型的完整配置（合并 provider 和 model 层级的配置）。
 
     Args:
         model_name: 模型标识，格式为 provider/model（如 glm/glm-4.7）。
-        models_path: 模型配置路径。为 None 时使用 configs/models.yaml。
+        models_path: 模型配置路径。为 None 时自动检测。
 
     Returns:
         合并后的配置字典，包含 provider, api_key, api_base, max_tokens, max_concurrency 字段。
@@ -107,16 +169,15 @@ def get_model_config(model_name: str, models_path: str | Path | None = None) -> 
         )
 
     model_cfg = models[model_id] or {}
-    # 读取全局默认值，默认为 131072
     defaults = cfg.get("defaults", {})
     default_max_tokens = defaults.get("max_tokens", 131072)
 
-    # 并发控制：优先读取 max_concurrency，兼容旧配置 rate_limit
     max_concurrency = None
     if "max_concurrency" in provider_cfg:
         max_concurrency = provider_cfg["max_concurrency"]
     elif "rate_limit" in provider_cfg:
         import warnings
+
         warnings.warn(
             f"Provider '{provider_name}': 'rate_limit' 配置已废弃，"
             f"请改用 'max_concurrency'。当前值 {provider_cfg['rate_limit']} "
