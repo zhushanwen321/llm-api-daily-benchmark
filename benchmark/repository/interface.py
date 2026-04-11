@@ -24,12 +24,12 @@ class Repository(ABC):
     @staticmethod
     def get_run_dir(run_id: str) -> Path:
         """返回某个 run 的目录路径。"""
-        return Path(DATA_DIR) / "runs" / run_id
+        return Path(DATA_DIR) / run_id
 
     @staticmethod
-    def get_question_dir(run_id: str, task_id: str) -> Path:
+    def get_question_dir(run_id: str, question_id: str) -> Path:
         """返回某个 run 下某道题目的目录路径。"""
-        return Repository.get_run_dir(run_id) / "questions" / task_id
+        return Repository.get_run_dir(run_id) / question_id
 
     @staticmethod
     def get_scoring_path(run_id: str, task_id: str) -> Path:

@@ -194,11 +194,11 @@ class TestRepositoryPathHelpers:
 
     def test_get_run_dir(self):
         result = Repository.get_run_dir("run-123")
-        assert result == Path("data") / "runs" / "run-123"
+        assert result == Path("data") / "run-123"
 
     def test_get_question_dir(self):
         result = Repository.get_question_dir("run-123", "q1")
-        assert result == Path("data") / "runs" / "run-123" / "questions" / "q1"
+        assert result == Path("data") / "run-123" / "q1"
 
     def test_get_scoring_path(self):
         result = Repository.get_scoring_path("run-123", "q1")
