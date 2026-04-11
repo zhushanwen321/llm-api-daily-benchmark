@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -312,10 +313,10 @@ class FileRepository(Repository):
         )
 
     def finish_run(self, run_id: str, status: str = "completed") -> None:
-        """标记运行记录为已完成。"""
+        """标记运行记录为已完成或失败。"""
         if status == "failed":
             self._status.set_failed(run_id)
-        # 其他状态不直接支持，需要手动更新
+        # completed 状态由 save_question_scoring 在 scored == total 时自动设置
 
     def get_active_runs(self) -> list[EvalRun]:
         """获取所有 status 为 running 的运行记录（Repository 接口实现）。"""
@@ -514,7 +515,7 @@ class FileRepository(Repository):
                 continue
 
             try:
-                row = __import__("json").loads(line)
+                row = json.loads(line)
 
                 # 应用过滤条件
                 if model and row.get("model") != model:
