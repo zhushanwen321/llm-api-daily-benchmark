@@ -1,4 +1,3 @@
-from benchmark.core.semaphore_wrapper import timed_semaphore
 from benchmark.core.timing_tracker import (
     PhaseTiming,
     TimingCollector,
@@ -10,7 +9,6 @@ from benchmark.core.timing_tracker import (
 )
 
 __all__ = [
-    "timed_semaphore",
     "PhaseTiming",
     "TimingCollector",
     "TimingTracker",
