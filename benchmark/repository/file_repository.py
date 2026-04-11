@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -1054,3 +1055,36 @@ class FileRepository(Repository):
     def read_execution_log(self, benchmark_id: str, question_id: str) -> str:
         """读取执行日志。"""
         return self._execution_log.read_log(benchmark_id, question_id)
+
+    async def asave_result(self, result: EvalResult) -> str:
+        return await asyncio.to_thread(self.save_answer, result)
+
+    async def asave_metrics(self, metrics: ApiCallMetrics) -> str:
+        return await asyncio.to_thread(self.save_metrics, metrics)
+
+    async def aget_quality_signals_for_run(self, run_id: str) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self.get_quality_signals_for_run, run_id)
+
+    async def aget_quality_signals_history(
+        self, model: str, days: int = 7
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(self.get_quality_signals_history, model, days)
+
+    async def asave_quality_signals(self, signals: dict[str, Any]) -> str:
+        return await asyncio.to_thread(self.save_quality_signals, signals)
+
+    async def asave_stability_report(self, report: StabilityReport) -> str:
+        return await asyncio.to_thread(self.save_analysis, report)
+
+    async def asave_cluster_report(self, report: ClusterReport) -> str:
+        return await asyncio.to_thread(self.save_cluster_report, report)
+
+    async def aget_results(
+        self,
+        model: Optional[str] = None,
+        dimension: Optional[str] = None,
+        run_id: Optional[str] = None,
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self.get_results, model=model, dimension=dimension, run_id=run_id
+        )

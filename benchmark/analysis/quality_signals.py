@@ -9,8 +9,8 @@ import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from benchmark.models.database import Database
     from benchmark.models.schemas import TaskDefinition
+    from benchmark.repository import FileRepository
 
 _REFUSAL_PATTERNS = re.compile(
     r"作为.*AI"
@@ -42,12 +42,12 @@ class QualitySignalCollector:
 
     def __init__(
         self,
-        db: Database,
+        repo: FileRepository,
         model: str,
         max_cache_size: int = 1000,
         cache_ttl: int = 3600,
     ) -> None:
-        self._db = db
+        self._repo = repo
         self._model = model
         self._max_cache_size = max_cache_size
         self._cache_ttl = cache_ttl
@@ -105,7 +105,7 @@ class QualitySignalCollector:
             "answer_entropy": 0.0,  # 由 StabilityAnalyzer 批次级计算
             "raw_output_length": len(raw_output),
         }
-        await self._db.asave_quality_signals(
+        await self._repo.asave_quality_signals(
             {
                 "result_id": result_id,
                 **signals,
@@ -287,30 +287,64 @@ class QualitySignalCollector:
         value_expr: str,
         days: int = 7,
     ) -> tuple[float, float]:
+        """获取历史统计信息（mean, std）。"""
         cache_key = self._get_cache_key(query_key, filters)
         if cache_key in self._cache and self._is_cache_valid(cache_key):
             return self._cache[cache_key]
 
-        sql = f"""
-            SELECT {value_expr} AS val
-            FROM api_call_metrics acm
-            JOIN eval_results er ON acm.result_id = er.result_id
-            JOIN eval_runs ev ON er.run_id = ev.run_id
-            WHERE ev.model = ?
-              AND ev.status = 'completed'
-              AND acm.created_at >= datetime('now', ?)
-        """
-        params: list = [self._model, f"-{days} days"]
+        from datetime import datetime, timedelta
 
-        if "dimension" in filters:
-            sql += " AND ev.dimension = ?"
-            params.append(filters["dimension"])
-        if "task_id" in filters:
-            sql += " AND er.task_id = ?"
-            params.append(filters["task_id"])
+        cutoff = datetime.now() - timedelta(days=days)
 
-        rows = await asyncio.to_thread(self._query_history, sql, params)
-        values = [r["val"] for r in rows if r["val"] is not None]
+        runs = await asyncio.to_thread(
+            self._repo.get_runs,
+            model=self._model,
+            dimension=filters.get("dimension"),
+            status_filter="completed",
+        )
+
+        values: list[float] = []
+        for run in runs:
+            created_at = (
+                run.get("created_at")
+                if isinstance(run, dict)
+                else getattr(run, "created_at", None)
+            )
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
+            if not created_at or created_at < cutoff:
+                continue
+
+            run_id = (
+                run.get("run_id")
+                if isinstance(run, dict)
+                else getattr(run, "run_id", None)
+            )
+            results = await self._repo.aget_results(run_id=run_id)
+
+            for r in results:
+                if "task_id" in filters:
+                    task_id = r.get("task_id")
+                    if task_id != filters["task_id"]:
+                        continue
+
+                val: float | None = None
+                if (
+                    "output_length" in value_expr
+                    or "LENGTH(er.model_output)" in value_expr
+                ):
+                    model_output = r.get("model_output", "")
+                    val = float(len(model_output)) if model_output else 0.0
+                elif "prompt_tokens" in value_expr:
+                    val = float(r.get("prompt_tokens", 0))
+                elif "tokens_per_second" in value_expr:
+                    val = float(r.get("tokens_per_second", 0))
+                elif "ttft" in value_expr:
+                    val = float(r.get("ttft_content", 0))
+
+                if val is not None:
+                    values.append(val)
+
         if len(values) < 2:
             return (0.0, 0.0)
 
@@ -319,9 +353,3 @@ class QualitySignalCollector:
         result = (mean, 0.0) if std == 0 else (mean, std)
         self._set_cache(cache_key, result)
         return result
-
-    def _query_history(self, sql: str, params: list) -> list[dict]:
-        conn = self._db._get_conn()
-        cursor = conn.execute(sql, params)
-        columns = [desc[0] for desc in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]

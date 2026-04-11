@@ -6,11 +6,12 @@ from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
-import sqlite3
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
     from matplotlib.figure import Figure
+
+    from benchmark.repository.file_repository import FileRepository
 
 
 # 暗色主题配色方案
@@ -44,12 +45,12 @@ def apply_dark_theme(fig: Figure, ax: Axes) -> None:
 
 
 def get_trend_data(
-    conn: sqlite3.Connection, model: str, dimension: str, days: int = 30
+    repo: FileRepository, model: str, dimension: str, days: int = 30
 ) -> dict[str, list]:
-    """从数据库获取趋势数据.
+    """从 FileRepository 获取趋势数据.
 
     Args:
-        conn: SQLite 连接.
+        repo: FileRepository 实例.
         model: 模型名称.
         dimension: 评测维度.
         days: 天数范围.
@@ -59,27 +60,37 @@ def get_trend_data(
     """
     cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-    query = """
-        SELECT
-            DATE(r.created_at) as date,
-            AVG(r.final_score) as avg_score
-        FROM eval_results r
-        JOIN eval_runs e ON r.run_id = e.run_id
-        WHERE e.model = ?
-          AND e.dimension = ?
-          AND DATE(r.created_at) >= ?
-        GROUP BY DATE(r.created_at)
-        ORDER BY date ASC
-    """
+    # 使用 FileRepository 的 get_trend_data 方法
+    trend_data = repo.get_trend_data(
+        model=model,
+        dimension=dimension,
+        days=days,
+    )
 
-    # 设置 row_factory 以获取字典形式的结果
-    conn.row_factory = sqlite3.Row
-    cursor = conn.execute(query, (model, dimension, cutoff_date))
-    rows = cursor.fetchall()
+    # 过滤并聚合数据
+    daily_scores: dict[str, list] = {}
+    for run in trend_data:
+        created_at = run.get("created_at", "")
+        if not created_at:
+            continue
+
+        date = created_at[:10]  # 提取日期部分
+        if date < cutoff_date:
+            continue
+
+        avg_score = run.get("avg_score")
+        if avg_score is not None:
+            if date not in daily_scores:
+                daily_scores[date] = []
+            daily_scores[date].append(avg_score)
+
+    # 计算每日平均分数
+    dates = sorted(daily_scores.keys())
+    scores = [sum(daily_scores[d]) / len(daily_scores[d]) for d in dates]
 
     return {
-        "dates": [row["date"] for row in rows],
-        "scores": [row["avg_score"] for row in rows],
+        "dates": dates,
+        "scores": scores,
     }
 
 
@@ -114,14 +125,14 @@ def create_trend_figure(data: dict[str, list], title: str = "Score Trend") -> Fi
 
 
 def create_multi_model_trend(
-    conn: sqlite3.Connection, models: list[str], dimension: str, days: int = 30
+    repo: FileRepository, models: list[str], dimension: str, days: int = 30
 ) -> Figure:
     """创建多模型对比趋势图."""
     fig, ax = plt.subplots(figsize=(12, 4.5), dpi=100)
     apply_dark_theme(fig, ax)
 
     for i, model in enumerate(models):
-        data = get_trend_data(conn, model, dimension, days)
+        data = get_trend_data(repo, model, dimension, days)
         if data["dates"]:
             color = LINE_COLORS[i % len(LINE_COLORS)]
             ax.plot(

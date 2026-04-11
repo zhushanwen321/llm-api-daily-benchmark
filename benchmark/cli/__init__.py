@@ -31,7 +31,7 @@ from benchmark.core.timing_tracker import (
     start_timing_collection,
     stop_timing_collection,
 )
-from benchmark.models.database import Database
+from benchmark.repository import FileRepository
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.backend import create_backend_composite
 from benchmark.scorers.composite import CompositeScorer
@@ -195,7 +195,7 @@ async def _evaluate_task(
     llm: LLMEvalAdapter,
     scorer: Any,
     evaluator: Any,
-    db: Database,
+    repo: FileRepository,
     run_id: str,
     total: int,
     debug: bool,
@@ -270,10 +270,10 @@ async def _evaluate_task(
                 execution_time=api_duration,
                 created_at=datetime.now(),
             )
-            await db.asave_result(result)
+            await repo.asave_result(result)
 
             tps = gm.get("tokens_per_second", 0.0)
-            await db.asave_metrics(
+            await repo.asave_metrics(
                 ApiCallMetrics(
                     result_id=result_id,
                     prompt_tokens=gm.get("prompt_tokens", 0),
@@ -298,7 +298,7 @@ async def _evaluate_task(
             try:
                 from benchmark.analysis.quality_signals import QualitySignalCollector
 
-                qsc = QualitySignalCollector(db=db, model=model)
+                qsc = QualitySignalCollector(repo=repo, model=model)
                 await qsc.collect_and_save(
                     result_id=result_id,
                     raw_output=ctx.raw_output,
@@ -387,7 +387,7 @@ async def _run_evaluation(
     dimension: str,
     samples: int,
     debug: bool,
-    db: Database | None = None,
+    repo: FileRepository | None = None,
 ) -> None:
     """异步评测主流程，使用 asyncio.gather 并发执行所有 task。"""
     adapter_cls, scorer_factory, evaluator_cls = DIMENSION_REGISTRY[dimension]
@@ -421,11 +421,11 @@ async def _run_evaluation(
         started_at=datetime.now(),
         status="running",
     )
-    own_db = db is None
-    if own_db:
-        db = Database()
+    own_repo = repo is None
+    if own_repo:
+        repo = FileRepository()
     try:
-        await asyncio.to_thread(db.create_run, run)
+        await asyncio.to_thread(repo.create_run, run)
 
         coros = [
             _evaluate_task(
@@ -435,7 +435,7 @@ async def _run_evaluation(
                 llm,
                 scorer,
                 evaluator,
-                db,
+                repo,
                 run_id,
                 len(tasks),
                 debug,
@@ -481,7 +481,7 @@ async def _run_evaluation(
         try:
             from benchmark.analysis.stability_analyzer import StabilityAnalyzer
 
-            analyzer = StabilityAnalyzer(db=db)
+            analyzer = StabilityAnalyzer(repo=repo)
             report = await analyzer.run(model=model, run_id=run_id, dimension=dimension)
             status_color = {
                 "stable": "green",
@@ -500,13 +500,12 @@ async def _run_evaluation(
                 from benchmark.analysis.fingerprint import FingerprintManager
 
                 fm = FingerprintManager()
-                results = await asyncio.to_thread(
-                    db.get_results,
+                results = await repo.aget_results(
                     model=model,
                     dimension="probe",
                     run_id=run_id,
                 )
-                signals = await db.aget_quality_signals_for_run(run_id)
+                signals = await repo.aget_quality_signals_for_run(run_id)
                 scores = [float(r["final_score"]) for r in results]
 
                 fp = fm.generate_fingerprint_sync(
@@ -547,15 +546,15 @@ async def _run_evaluation(
                                 f"cluster {change['from_cluster']} → {change['to_cluster']} "
                                 f"(similarity={change['cosine_similarity']:.4f})"
                             )
-                    await db.asave_cluster_report(cluster_report)
+                    await repo.asave_cluster_report(cluster_report)
             except Exception as exc:
                 logger.warning(f"聚类分析失败: {exc}")
 
         if failed_count == 0:
-            await asyncio.to_thread(db.finish_run, run_id, "completed")
+            await asyncio.to_thread(repo.finish_run, run_id, "completed")
         else:
             await asyncio.to_thread(
-                db.finish_run,
+                repo.finish_run,
                 run_id,
                 "partial" if failed_count < len(tasks) else "failed",
             )
@@ -572,13 +571,13 @@ async def _run_evaluation(
     except Exception:
         console.print("[red]Evaluation failed![/red]")
         try:
-            await asyncio.to_thread(db.finish_run, run_id, "failed")
+            await asyncio.to_thread(repo.finish_run, run_id, "failed")
         except Exception:
             pass
         raise
     finally:
-        if own_db:
-            db.close()
+        if own_repo:
+            pass
         await llm.close()
 
 
@@ -595,13 +594,15 @@ def _group_by_provider(
 
 
 async def _run_provider_group(
-    tasks: list[tuple[str, str]], samples: int, debug: bool, db: Database
+    tasks: list[tuple[str, str]], samples: int, debug: bool, repo: FileRepository
 ) -> None:
     """同一 provider 内的 evaluation run 并发执行。"""
     if not tasks:
         return
 
-    coros = [_run_evaluation(model, dim, samples, debug, db=db) for model, dim in tasks]
+    coros = [
+        _run_evaluation(model, dim, samples, debug, repo=repo) for model, dim in tasks
+    ]
     results = await asyncio.gather(*coros, return_exceptions=True)
 
     for i, result in enumerate(results):
@@ -625,21 +626,19 @@ def _get_provider_concurrency(model: str) -> int:
 async def _run_multi_evaluation(
     models: list[str], dimensions: list[str], samples: int, debug: bool
 ) -> None:
-    """多模型 x 多维度评测。共享单一 Database 实例以避免 SQLite 写锁竞争。
+    """多模型 x 多维度评测。共享单一 FileRepository 实例。
 
-    注意：维度之间串行执行，避免过多并发导致 SQLite 锁竞争。
     每个维度内部的任务仍然并发执行。
     """
-    db = Database()
+    repo = FileRepository()
     try:
         groups = _group_by_provider(models, dimensions)
-        # 串行执行每个 provider 组的维度，避免 SQLite 锁竞争
         for provider, tasks in groups.items():
             logger.info(f"[EVAL] 开始评测 provider: {provider} | 维度数: {len(tasks)}")
-            await _run_provider_group(tasks, samples, debug, db=db)
+            await _run_provider_group(tasks, samples, debug, repo=repo)
             logger.info(f"[EVAL] 完成评测 provider: {provider}")
     finally:
-        db.close()
+        pass
 
 
 @cli.command("list-datasets")
@@ -724,31 +723,37 @@ def download(output_dir: str) -> None:
 @click.option("--dimension", default=None, help="按维度过滤")
 def export(fmt: str, output: str, model: str | None, dimension: str | None) -> None:
     """导出评测结果."""
-    db = Database()
-    results = db.get_results(model=model, dimension=dimension)
 
-    if not results:
-        console.print("[yellow]No results found.[/yellow]")
-        return
+    async def _do_export() -> None:
+        repo = FileRepository()
+        results = await repo.aget_results(model=model, dimension=dimension)
 
-    output_path = Path(output)
+        if not results:
+            console.print("[yellow]No results found.[/yellow]")
+            return
 
-    if fmt == "json":
-        data = [dict(row) for row in results]
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False, default=str)
-        console.print(f"[green]Exported {len(data)} results to {output_path}[/green]")
+        output_path = Path(output)
 
-    elif fmt == "csv":
-        if results:
-            keys = results[0].keys()
-            with open(output_path, "w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=keys)
-                writer.writeheader()
-                writer.writerows(results)
+        if fmt == "json":
+            data = [dict(row) for row in results]
+            with open(output_path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2, ensure_ascii=False, default=str)
             console.print(
-                f"[green]Exported {len(results)} results to {output_path}[/green]"
+                f"[green]Exported {len(data)} results to {output_path}[/green]"
             )
+
+        elif fmt == "csv":
+            if results:
+                keys = results[0].keys()
+                with open(output_path, "w", newline="", encoding="utf-8") as f:
+                    writer = csv.DictWriter(f, fieldnames=keys)
+                    writer.writeheader()
+                    writer.writerows(results)
+                console.print(
+                    f"[green]Exported {len(results)} results to {output_path}[/green]"
+                )
+
+    asyncio.run(_do_export())
 
 
 @cli.command()

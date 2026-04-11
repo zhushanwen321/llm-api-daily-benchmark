@@ -2,7 +2,7 @@
 
 import json
 import os
-import sqlite3
+from pathlib import Path
 from typing import Callable
 
 import streamlit as st
@@ -12,6 +12,7 @@ from benchmark.core.statistics import (
     calculate_mean,
     calculate_std,
 )
+from benchmark.repository.file_repository import FileRepository
 from benchmark.visualization.components import trends
 from benchmark.visualization.components.scoring_details import render_scoring_breakdown
 from benchmark.visualization.pages.timing_gantt import render_timing_gantt_page
@@ -20,10 +21,11 @@ from benchmark.visualization.pages.timing_gantt import render_timing_gantt_page
 def render_overview_page() -> None:
     """概览页面 - 展示评测结果统计和列表."""
     st.title("📊 评测概览")
-    conn = get_connection()
+    repo = get_repository()
 
-    results_check = conn.execute("SELECT COUNT(*) FROM eval_results").fetchone()
-    if results_check[0] == 0:
+    # 检查结果数据
+    results = repo.get_results()
+    if not results:
         st.info("No evaluation results yet. Run an evaluation to get started.")
         st.code(
             "uv run python -m benchmark evaluate --model my-provider/my-model --dimension reasoning"
@@ -32,11 +34,11 @@ def render_overview_page() -> None:
 
     st.sidebar.header("Filters")
 
-    models = get_models(conn)
+    models = get_models(repo)
     model_options = ["All"] + models
     selected_model = st.sidebar.selectbox("Model", model_options)
 
-    dimensions = get_dimensions(conn)
+    dimensions = get_dimensions(repo)
     dim_options = ["All"] + dimensions
     selected_dimension = st.sidebar.selectbox("Dimension", dim_options)
 
@@ -46,7 +48,7 @@ def render_overview_page() -> None:
         ["Results", "Trends", "Probe & Stability", "Detail"]
     )
 
-    results = get_results(conn, selected_model, selected_dimension)
+    results = get_results(repo, selected_model, selected_dimension)
 
     if not results:
         st.warning("No results match the selected filters.")
@@ -129,7 +131,7 @@ def render_overview_page() -> None:
 
         if selected_model != "All" and selected_dimension != "All":
             trend_data = trends.get_trend_data(
-                conn, selected_model, selected_dimension, selected_days
+                repo, selected_model, selected_dimension, selected_days
             )
             if trend_data["dates"]:
                 fig = trends.create_trend_figure(
@@ -142,7 +144,7 @@ def render_overview_page() -> None:
         elif selected_model != "All" and selected_dimension == "All":
             for dimension in selected_dimensions:
                 trend_data = trends.get_trend_data(
-                    conn, selected_model, dimension, selected_days
+                    repo, selected_model, dimension, selected_days
                 )
                 if trend_data["dates"]:
                     fig = trends.create_trend_figure(
@@ -152,7 +154,7 @@ def render_overview_page() -> None:
                     st.pyplot(fig)
         elif selected_model == "All" and selected_dimension != "All":
             fig = trends.create_multi_model_trend(
-                conn, selected_models, selected_dimension, selected_days
+                repo, selected_models, selected_dimension, selected_days
             )
             st.pyplot(fig)
         else:
@@ -168,32 +170,31 @@ def render_overview_page() -> None:
         )
 
         st.markdown("#### Probe Runs")
-        probe_runs = conn.execute(
-            """SELECT run_id, model, status, started_at, finished_at
-               FROM eval_runs WHERE dimension = 'probe'
-               ORDER BY started_at DESC LIMIT 20"""
-        ).fetchall()
+        all_runs = repo.get_runs(dimension="probe")
+        probe_runs = sorted(
+            all_runs, key=lambda x: x.get("started_at", ""), reverse=True
+        )[:20]
 
         if probe_runs:
             probe_data = []
             for r in probe_runs:
-                run_id = r["run_id"]
-                stats = conn.execute(
-                    """SELECT COUNT(*) as total,
-                              SUM(CASE WHEN passed THEN 1 ELSE 0 END) as passed,
-                              AVG(final_score) as avg_score
-                       FROM eval_results WHERE run_id = ?""",
-                    (run_id,),
-                ).fetchone()
+                run_id = r.get("run_id", "")
+                run_results = repo.get_results(run_id=run_id)
+                total = len(run_results)
+                passed = sum(1 for res in run_results if res.get("passed"))
+                avg_score = (
+                    sum(res.get("final_score", 0) for res in run_results) / total
+                    if total > 0
+                    else None
+                )
+                started_at = r.get("started_at", "")
                 probe_data.append(
                     {
-                        "Time": r["started_at"][:19] if r["started_at"] else "-",
-                        "Model": r["model"],
-                        "Status": r["status"],
-                        "Passed": f"{stats['passed']}/{stats['total']}",
-                        "Avg Score": f"{stats['avg_score']:.1f}"
-                        if stats["avg_score"]
-                        else "-",
+                        "Time": started_at[:19] if started_at else "-",
+                        "Model": r.get("model", ""),
+                        "Status": r.get("status", ""),
+                        "Passed": f"{passed}/{total}",
+                        "Avg Score": f"{avg_score:.1f}" if avg_score else "-",
                     }
                 )
             st.dataframe(probe_data, width="stretch", hide_index=True)
@@ -202,45 +203,45 @@ def render_overview_page() -> None:
 
         st.markdown("#### Stability Reports")
         stability_model = probe_model
-        stability_rows = conn.execute(
-            """SELECT model, run_id, overall_status, summary, created_at
-               FROM stability_reports
-               WHERE ? IS NULL OR model = ?
-               ORDER BY created_at DESC LIMIT 20""",
-            (stability_model, stability_model),
-        ).fetchall()
+        stability_reports = repo.get_stability_reports(
+            model=stability_model if stability_model else None
+        )
+        stability_reports = sorted(
+            stability_reports, key=lambda x: x.get("created_at", ""), reverse=True
+        )[:20]
 
-        if stability_rows:
-            for row in stability_rows:
-                status = row["overall_status"]
+        if stability_reports:
+            for report in stability_reports:
+                status = report.get("overall_status", "")
                 color = (
                     "green"
                     if status == "stable"
                     else ("red" if status == "degraded" else "orange")
                 )
+                created_at = report.get("created_at", "")
                 st.markdown(
-                    f"**[{row['model']}]** {row['created_at'][:19]} — :{color}[{status}]"
+                    f"**[{report.get('model', '')}]** {created_at[:19] if created_at else '-'} — :{color}[{status}]"
                 )
-                st.caption(row["summary"] or "")
+                st.caption(report.get("summary", "") or "")
         else:
             st.info("No stability reports yet.")
 
         st.markdown("#### Model Identity Clustering")
-        cluster_rows = conn.execute(
-            """SELECT model, n_clusters, n_noise, summary, created_at
-               FROM cluster_reports
-               WHERE ? IS NULL OR model = ?
-               ORDER BY created_at DESC LIMIT 20""",
-            (stability_model, stability_model),
-        ).fetchall()
+        cluster_reports = repo.get_cluster_reports(
+            model=stability_model if stability_model else None
+        )
+        cluster_reports = sorted(
+            cluster_reports, key=lambda x: x.get("created_at", ""), reverse=True
+        )[:20]
 
-        if cluster_rows:
-            for row in cluster_rows:
+        if cluster_reports:
+            for report in cluster_reports:
+                created_at = report.get("created_at", "")
                 st.markdown(
-                    f"**[{row['model']}]** {row['created_at'][:19]} — "
-                    f"Clusters: {row['n_clusters']}, Noise: {row['n_noise']}"
+                    f"**[{report.get('model', '')}]** {created_at[:19] if created_at else '-'} — "
+                    f"Clusters: {report.get('n_clusters', 0)}, Noise: {report.get('n_noise', 0)}"
                 )
-                st.caption(row["summary"] or "")
+                st.caption(report.get("summary", "") or "")
         else:
             st.info("No cluster reports yet.")
 
@@ -257,7 +258,7 @@ def render_overview_page() -> None:
         selected_result_id = st.session_state["selected_result_id"]
 
         if selected_result_id:
-            detail = get_result_detail(conn, selected_result_id)
+            detail = get_result_detail(repo, selected_result_id)
             if detail is None:
                 st.error(f"Result {selected_result_id} not found")
                 return
@@ -272,7 +273,7 @@ def render_overview_page() -> None:
             if selected_result_id is None:
                 st.error("No result selected")
                 return
-            detail = get_result_detail(conn, selected_result_id)
+            detail = get_result_detail(repo, selected_result_id)
 
             if detail is None:
                 st.error(f"Result {selected_result_id} not found")
@@ -302,37 +303,33 @@ def render_overview_page() -> None:
                 with metric_col3:
                     st.metric("Time", f"{detail['execution_time']:.2f}s")
 
-                metrics_row = conn.execute(
-                    "SELECT * FROM api_call_metrics WHERE result_id = ?",
-                    (selected_result_id,),
-                ).fetchone()
+                api_metrics = detail.get("api_metrics", {})
 
-                if metrics_row:
-                    metrics_row = dict(metrics_row)
+                if api_metrics:
                     token_col1, token_col2 = st.columns(2)
                     with token_col1:
                         st.metric(
                             "Token Speed",
-                            f"{metrics_row['tokens_per_second']:.1f} tok/s",
+                            f"{api_metrics.get('tokens_per_second', 0):.1f} tok/s",
                         )
                     with token_col2:
                         st.metric(
                             "Tokens",
-                            f"{metrics_row['prompt_tokens']} in / {metrics_row['completion_tokens']} out",
+                            f"{api_metrics.get('prompt_tokens', 0)} in / {api_metrics.get('completion_tokens', 0)} out",
                         )
 
                     extra_col1, extra_col2, extra_col3 = st.columns(3)
-                    reasoning_tokens = metrics_row.get("reasoning_tokens", 0)
+                    reasoning_tokens = api_metrics.get("reasoning_tokens", 0)
                     if reasoning_tokens > 0:
                         with extra_col1:
                             st.metric("Reasoning Tokens", f"{reasoning_tokens}")
 
-                    ttft_content = metrics_row.get("ttft_content", 0.0)
+                    ttft_content = api_metrics.get("ttft_content", 0.0)
                     if ttft_content > 0:
                         with extra_col2:
                             st.metric("TTFT-C", f"{ttft_content:.2f}s")
 
-                    ttft = metrics_row.get("ttft", 0.0)
+                    ttft = api_metrics.get("ttft", 0.0)
                     if ttft > 0:
                         with extra_col3:
                             st.metric("TTFT-R", f"{ttft:.2f}s")
@@ -373,8 +370,9 @@ def render_overview_page() -> None:
             st.markdown("### 🎯 Scoring Details")
 
             think_content = detail.get("model_think", "") or ""
-            if metrics_row and metrics_row.get("reasoning_content"):
-                think_content = metrics_row["reasoning_content"]
+            api_metrics = detail.get("api_metrics", {})
+            if api_metrics and api_metrics.get("reasoning_content"):
+                think_content = api_metrics["reasoning_content"]
 
             if think_content:
                 with st.expander("Thinking Process", expanded=False):
@@ -402,85 +400,58 @@ def render_overview_page() -> None:
                 st.info("No scoring details available")
 
 
-DB_PATH = "benchmark/data/results.db"
+DATA_ROOT = Path("data")
 
 
 @st.cache_resource
-def get_connection() -> sqlite3.Connection:
-    """获取 SQLite 连接（缓存）.
-
-    先通过 Database 类触发迁移（确保 schema 最新），再返回原生连接.
-    """
-    from benchmark.models.database import Database
-
-    Database().close()  # 触发 schema 迁移
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    return conn
+def get_repository() -> FileRepository:
+    """获取 FileRepository 实例（缓存）."""
+    return FileRepository(DATA_ROOT)
 
 
-def get_models(conn: sqlite3.Connection) -> list[str]:
+def get_models(repo: FileRepository) -> list[str]:
     """获取所有已评测的模型名称."""
-    cursor = conn.execute("SELECT DISTINCT model FROM eval_runs")
-    return [row["model"] for row in cursor.fetchall()]
+    runs = repo.get_runs()
+    models = {run.get("model", "") for run in runs if run.get("model")}
+    return sorted(models)
 
 
-def get_dimensions(conn: sqlite3.Connection) -> list[str]:
+def get_dimensions(repo: FileRepository) -> list[str]:
     """获取所有已评测的维度名称."""
-    cursor = conn.execute("SELECT DISTINCT dimension FROM eval_runs")
-    return [row["dimension"] for row in cursor.fetchall()]
+    runs = repo.get_runs()
+    dimensions = {run.get("dimension", "") for run in runs if run.get("dimension")}
+    return sorted(dimensions)
 
 
 def get_results(
-    conn: sqlite3.Connection, model: str | None, dimension: str | None
+    repo: FileRepository, model: str | None, dimension: str | None
 ) -> list[dict]:
     """查询结果并返回字典列表."""
-    query = """
-        SELECT
-            r.result_id,
-            e.model,
-            e.dimension,
-            r.task_id,
-            r.final_score,
-            r.passed,
-            r.execution_time,
-            m.tokens_per_second,
-            m.ttft,
-            m.ttft_content,
-            m.reasoning_tokens,
-            m.prompt_tokens,
-            m.completion_tokens,
-            r.created_at
-        FROM eval_results r
-        JOIN eval_runs e ON r.run_id = e.run_id
-        LEFT JOIN api_call_metrics m ON r.result_id = m.result_id
-        WHERE 1=1
-    """
-    params: list[str] = []
-
-    if model and model != "All":
-        query += " AND e.model = ?"
-        params.append(model)
-    if dimension and dimension != "All":
-        query += " AND e.dimension = ?"
-        params.append(dimension)
-
-    query += " ORDER BY r.created_at DESC"
-    cursor = conn.execute(query, params)
-    return [dict(row) for row in cursor.fetchall()]
-
-
-def get_result_detail(conn: sqlite3.Connection, result_id: str) -> dict | None:
-    """查询单条结果的详情."""
-    cursor = conn.execute(
-        "SELECT * FROM eval_results WHERE result_id = ?",
-        (result_id,),
+    results = repo.get_results(
+        model=model if model and model != "All" else None,
+        dimension=dimension if dimension and dimension != "All" else None,
     )
-    row = cursor.fetchone()
-    if not row:
-        return None
-    columns = [desc[0] for desc in cursor.description]
-    return dict(zip(columns, row))
+
+    # 补充 api_metrics 数据
+    for result in results:
+        result_id = result.get("result_id")
+        if result_id:
+            detail = repo.get_result_detail(result_id)
+            if detail and detail.get("api_metrics"):
+                api_metrics = detail["api_metrics"]
+                result["tokens_per_second"] = api_metrics.get("tokens_per_second")
+                result["ttft"] = api_metrics.get("ttft")
+                result["ttft_content"] = api_metrics.get("ttft_content")
+                result["reasoning_tokens"] = api_metrics.get("reasoning_tokens")
+                result["prompt_tokens"] = api_metrics.get("prompt_tokens")
+                result["completion_tokens"] = api_metrics.get("completion_tokens")
+
+    return results
+
+
+def get_result_detail(repo: FileRepository, result_id: str) -> dict | None:
+    """查询单条结果的详情."""
+    return repo.get_result_detail(result_id)
 
 
 def main() -> None:

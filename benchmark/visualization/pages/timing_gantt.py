@@ -4,13 +4,14 @@
 """
 
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from benchmark.models.database import Database
+from benchmark.repository.file_repository import FileRepository
 
 
 # 暗色主题配色 - 更鲜明的颜色
@@ -29,21 +30,23 @@ TEXT_COLOR = "#fafafa"
 TEXT_COLOR_SECONDARY = "#b0b3b8"
 GRID_COLOR = "#2d3139"
 
+DATA_ROOT = Path("data")
+
 
 def get_default_color() -> str:
     return "#95a5a6"
 
 
 @st.cache_resource
-def get_db() -> Database:
-    return Database()
+def get_repository() -> FileRepository:
+    """获取 FileRepository 实例（缓存）."""
+    return FileRepository(DATA_ROOT)
 
 
-def get_models(db: Database) -> list[str]:
-    df = db.get_timing_phases(limit=10000)
-    if df.empty:
-        return []
-    models = df["model"].dropna().unique().tolist()
+def get_models(repo: FileRepository) -> list[str]:
+    """获取所有模型名称."""
+    runs = repo.get_runs()
+    models = {run.get("model", "") for run in runs if run.get("model")}
     return sorted(models)
 
 
@@ -147,13 +150,13 @@ def render_timing_gantt_page() -> None:
     """渲染耗时甘特图页面."""
     st.title("⏱️ Benchmark 耗时分析")
 
-    db = get_db()
+    repo = get_repository()
 
     # 筛选条件 - 3列布局
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        models = get_models(db)
+        models = get_models(repo)
         model_options = ["All"] + models if models else ["All"]
         selected_model = st.selectbox("Model", model_options)
 
@@ -179,7 +182,7 @@ def render_timing_gantt_page() -> None:
     model_filter = selected_model if selected_model != "All" else None
     run_id_filter = run_id_input if run_id_input.strip() else None
 
-    df = db.get_timing_phases(
+    df = repo.get_timing_phases(
         model=model_filter,
         run_id=run_id_filter,
         start_date=start_date,

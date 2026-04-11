@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 from datetime import datetime
@@ -11,10 +12,10 @@ from typing import Any
 import jinja2
 
 from benchmark.core.advanced_statistics import pairwise_comparison
-from benchmark.models.database import Database
+from benchmark.repository.file_repository import FileRepository
 
 
-def generate_html_report(
+async def generate_html_report(
     run_ids: list[str] | None = None,
     models: list[str] | None = None,
     dimensions: list[str] | None = None,
@@ -22,82 +23,77 @@ def generate_html_report(
     output_path: str = "report.html",
 ) -> str:
     """生成 HTML 报告."""
-    db = Database()
-    try:
-        rows = _query_results(
-            db, models=models, dimensions=dimensions, date_range=date_range
-        )
-        if not rows:
-            raise ValueError("No results found in database")
+    repo = FileRepository()
+    rows = await _query_results(
+        repo, models=models, dimensions=dimensions, date_range=date_range
+    )
+    if not rows:
+        raise ValueError("No results found in database")
 
-        # 提取模型和维度列表
-        model_list = sorted(set(r["model"] for r in rows))
-        dim_list = sorted(set(r["dimension"] for r in rows))
+    # 提取模型和维度列表
+    model_list = sorted(set(r["model"] for r in rows))
+    dim_list = sorted(set(r["dimension"] for r in rows))
 
-        # 构建得分表
-        score_table = _build_score_table(rows, model_list, dim_list)
+    # 构建得分表
+    score_table = _build_score_table(rows, model_list, dim_list)
 
-        # 统计检验
-        stat_tests = []
-        if len(model_list) >= 2:
-            model_scores = {}
-            for model in model_list:
-                model_rows = [r for r in rows if r["model"] == model]
-                model_scores[model] = [
-                    float(r.get("final_score", 0)) for r in model_rows
-                ]
-            stat_tests = pairwise_comparison(model_scores)
-
-        # 详细结果
-        detailed = _build_detailed(rows, model_list, dim_list)
-
-        # 构建雷达图
-        radar_charts: dict[str, dict[str, str]] = {}
+    # 统计检验
+    stat_tests = []
+    if len(model_list) >= 2:
+        model_scores = {}
         for model in model_list:
-            radar_charts[model] = {}
-            for dim in dim_list:
-                axes = _DIMENSION_AXES.get(dim, [])
-                if not axes:
-                    continue
-                scores = _extract_dimension_scores(rows, dim, model)
-                if scores:
-                    svg = _build_radar_svg(scores, axes)
-                    radar_charts[model][dim] = svg
+            model_rows = [r for r in rows if r["model"] == model]
+            model_scores[model] = [float(r.get("final_score", 0)) for r in model_rows]
+        stat_tests = pairwise_comparison(model_scores)
 
-        # 构建维度子分数表
-        dim_score_table = _build_dimension_score_table(rows)
+    # 详细结果
+    detailed = _build_detailed(rows, model_list, dim_list)
 
-        # 稳定性报告
-        stability_reports = _load_stability_reports(db, model_list)
+    # 构建雷达图
+    radar_charts: dict[str, dict[str, str]] = {}
+    for model in model_list:
+        radar_charts[model] = {}
+        for dim in dim_list:
+            axes = _DIMENSION_AXES.get(dim, [])
+            if not axes:
+                continue
+            scores = _extract_dimension_scores(rows, dim, model)
+            if scores:
+                svg = _build_radar_svg(scores, axes)
+                radar_charts[model][dim] = svg
 
-        # 聚类报告
-        cluster_reports = _load_cluster_reports(db, model_list)
+    # 构建维度子分数表
+    dim_score_table = _build_dimension_score_table(rows)
 
-        # 渲染
-        template_dir = Path(__file__).parent.parent / "templates"
-        env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(template_dir)))
-        template = env.get_template("report.html")
+    # 稳定性报告
+    stability_reports = await _load_stability_reports(repo, model_list)
 
-        html = template.render(
-            generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            models=model_list,
-            dimensions=dim_list,
-            date_range=date_range if date_range else "All time",
-            score_table=score_table,
-            stat_tests=stat_tests,
-            detailed=detailed,
-            radar_charts=radar_charts,
-            dim_score_table=dim_score_table,
-            dimension_axes=_DIMENSION_AXES,
-            stability_reports=stability_reports,
-            cluster_reports=cluster_reports,
-        )
+    # 聚类报告
+    cluster_reports = await _load_cluster_reports(repo, model_list)
 
-        output = Path(output_path)
-        output.write_text(html, encoding="utf-8")
-        return str(output)
-    finally:
-        db.close()
+    # 渲染
+    template_dir = Path(__file__).parent.parent / "templates"
+    env = jinja2.Environment(loader=jinja2.FileSystemLoader(str(template_dir)))
+    template = env.get_template("report.html")
+
+    html = template.render(
+        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        models=model_list,
+        dimensions=dim_list,
+        date_range=date_range if date_range else "All time",
+        score_table=score_table,
+        stat_tests=stat_tests,
+        detailed=detailed,
+        radar_charts=radar_charts,
+        dim_score_table=dim_score_table,
+        dimension_axes=_DIMENSION_AXES,
+        stability_reports=stability_reports,
+        cluster_reports=cluster_reports,
+    )
+
+    output = Path(output_path)
+    output.write_text(html, encoding="utf-8")
+    return str(output)
 
 
 def _build_score_table(
@@ -174,37 +170,52 @@ _DIMENSION_AXES = {
 }
 
 
-def _query_results(
-    db: Database, models=None, dimensions=None, date_range=None
+async def _query_results(
+    repo: FileRepository, models=None, dimensions=None, date_range=None
 ) -> list[dict]:
     """查询评测结果，包含 details 字段。"""
-    conn = db._get_conn()
-    query = """
-        SELECT r.result_id, e.model, e.dimension,
-               r.task_id, r.final_score, r.passed,
-               r.execution_time, r.created_at,
-               r.details
-        FROM eval_results r
-        JOIN eval_runs e ON r.run_id = e.run_id
-        WHERE 1=1
-    """
-    params: list = []
+    if not models and not dimensions:
+        return await asyncio.to_thread(repo.get_results)
+
+    all_results = await asyncio.to_thread(repo.get_results)
+
     if models:
-        placeholders = ",".join("?" for _ in models)
-        query += f" AND e.model IN ({placeholders})"
-        params.extend(models)
+        all_results = [r for r in all_results if r.get("model") in models]
     if dimensions:
-        placeholders = ",".join("?" for _ in dimensions)
-        query += f" AND e.dimension IN ({placeholders})"
-        params.extend(dimensions)
+        all_results = [r for r in all_results if r.get("dimension") in dimensions]
     if date_range:
         start, end = date_range
-        query += " AND r.created_at >= ? AND r.created_at <= ?"
-        params.extend([start, end + " 23:59:59"])
-    query += " ORDER BY r.created_at DESC"
-    cursor = conn.execute(query, params)
-    columns = [desc[0] for desc in cursor.description]
-    return [dict(zip(columns, row)) for row in cursor.fetchall()]
+
+        def parse_date(d):
+            try:
+                return datetime.fromisoformat(d.replace(" ", "T"))
+            except ValueError:
+                return None
+
+        start_dt = parse_date(start)
+        end_dt = parse_date(end)
+        if end_dt:
+            end_dt = end_dt.replace(hour=23, minute=59, second=59)
+
+        def within_range(r):
+            created_at = r.get("created_at", "")
+            if not created_at:
+                return True
+            try:
+                dt = datetime.fromisoformat(
+                    created_at.replace("Z", "+00:00").replace(" ", "T")
+                )
+                if start_dt and dt < start_dt:
+                    return False
+                if end_dt and dt > end_dt:
+                    return False
+                return True
+            except ValueError:
+                return True
+
+        all_results = [r for r in all_results if within_range(r)]
+
+    return all_results
 
 
 def _extract_dimension_scores(
@@ -374,25 +385,29 @@ def _build_dimension_score_table(
     return result
 
 
-def _load_stability_reports(db: Database, models: list[str]) -> dict[str, list[dict]]:
+async def _load_stability_reports(
+    repo: FileRepository, models: list[str]
+) -> dict[str, list[dict]]:
     """加载每个模型的最近稳定性报告。"""
     result: dict[str, list[dict]] = {}
     for model in models:
         try:
-            reports = db._get_stability_reports(model)
-            result[model] = reports[:10]  # 最近 10 条
+            reports = await asyncio.to_thread(repo.get_stability_reports, model)
+            result[model] = reports[:10]
         except Exception:
             result[model] = []
     return result
 
 
-def _load_cluster_reports(db: Database, models: list[str]) -> dict[str, list[dict]]:
+async def _load_cluster_reports(
+    repo: FileRepository, models: list[str]
+) -> dict[str, list[dict]]:
     """加载每个模型的最近聚类报告。"""
     result: dict[str, list[dict]] = {}
     for model in models:
         try:
-            reports = db._get_cluster_reports(model)
-            result[model] = reports[:5]  # 最近 5 条
+            reports = await asyncio.to_thread(repo.get_cluster_reports, model)
+            result[model] = reports[:5]
         except Exception:
             result[model] = []
     return result
