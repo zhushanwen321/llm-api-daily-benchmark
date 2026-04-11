@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import re
-from typing import Any
 
 from benchmark.models.schemas import ScoreResult, ScoringContext
 from benchmark.scorers.llm_scorer.base import LLMScorerBackend

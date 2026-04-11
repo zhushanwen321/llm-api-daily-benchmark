@@ -9,7 +9,6 @@ import logging
 import os
 import subprocess
 import sys
-import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -37,7 +36,6 @@ from benchmark.models.database import Database
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.scorers.backend import create_backend_composite
 from benchmark.scorers.composite import CompositeScorer
-from benchmark.scorers.execution_scorer import ExecutionScorer
 from benchmark.scorers.frontend import create_frontend_composite
 from benchmark.scorers.probe_scorer import ProbeScorer
 from benchmark.scorers.reasoning import create_reasoning_composite
