@@ -7,7 +7,6 @@ import csv
 import json
 import logging
 import os
-import subprocess
 import sys
 import uuid
 from datetime import datetime
@@ -111,101 +110,6 @@ def _setup_proxy() -> None:
         os.environ.setdefault("all_proxy", proxy)
 
 
-_scoring_worker_process: subprocess.Popen | None = None
-
-
-def _start_scoring_daemon() -> None:
-    """启动守护模式评分Worker进程（非阻塞）。"""
-    import subprocess
-    import sys
-
-    global _scoring_worker_process
-
-    if _scoring_worker_process is not None:
-        logger.debug("Scoring daemon already running")
-        return
-
-    max_concurrency = os.getenv("SCORING_WORKER_MAX_CONCURRENCY", "3")
-    poll_interval = os.getenv("SCORING_WORKER_POLL_INTERVAL", "5")
-    signal_file = os.getenv("SCORING_SIGNAL_FILE", "/tmp/benchmark_scoring_active")
-    idle_timeout = os.getenv("SCORING_WORKER_IDLE_TIMEOUT", "30")
-
-    # 创建信号文件，告诉worker benchmark正在运行
-    Path(signal_file).touch()
-
-    cmd = [
-        sys.executable,
-        "-m",
-        "benchmark.workers.scoring_worker",
-        "--max-concurrency",
-        max_concurrency,
-        "--poll-interval",
-        poll_interval,
-        "--signal-file",
-        signal_file,
-        "--idle-timeout",
-        idle_timeout,
-    ]
-
-    try:
-        _scoring_worker_process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
-        )
-        logger.info(
-            "Scoring daemon started | pid=%d | max_concurrency=%s | signal_file=%s",
-            _scoring_worker_process.pid,
-            max_concurrency,
-            signal_file,
-        )
-    except Exception as e:
-        logger.warning("Failed to start scoring daemon: %s", e)
-        _scoring_worker_process = None
-
-
-def _stop_scoring_daemon() -> None:
-    """停止评分Worker守护进程。"""
-    global _scoring_worker_process
-
-    signal_file = os.getenv("SCORING_SIGNAL_FILE", "/tmp/benchmark_scoring_active")
-    graceful_timeout = int(os.getenv("SCORING_WORKER_GRACEFUL_SHUTDOWN_TIMEOUT", "300"))
-
-    # 删除信号文件，让worker知道benchmark已结束
-    try:
-        Path(signal_file).unlink(missing_ok=True)
-        logger.info("Signal file removed, waiting for worker to exit...")
-    except Exception as e:
-        logger.warning("Failed to remove signal file: %s", e)
-
-    if _scoring_worker_process is None:
-        logger.debug("No scoring daemon to stop")
-        return
-
-    try:
-        # 等待worker优雅退出
-        try:
-            _scoring_worker_process.wait(timeout=graceful_timeout)
-            logger.info("Scoring daemon exited gracefully")
-        except subprocess.TimeoutExpired:
-            logger.warning(
-                "Scoring daemon did not exit within %ds, terminating...",
-                graceful_timeout,
-            )
-            _scoring_worker_process.terminate()
-            try:
-                _scoring_worker_process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                logger.error("Scoring daemon did not terminate, killing...")
-                _scoring_worker_process.kill()
-                _scoring_worker_process.wait()
-    except Exception as e:
-        logger.warning("Error stopping scoring daemon: %s", e)
-    finally:
-        _scoring_worker_process = None
-
-
 @click.group()
 @click.option(
     "--debug",
@@ -259,16 +163,6 @@ def evaluate(
         debug = ctx.obj.get("debug", False)
     _setup_proxy()
 
-    async_scoring_enabled = (
-        os.getenv("ASYNC_SCORING_ENABLED", "false").lower() == "true"
-    )
-    if async_scoring_enabled:
-        backend_type = os.getenv("SCORING_BACKEND_TYPE", "qwen_cli")
-        logger.info(
-            f"异步评分模式已启用 | backend={backend_type} | "
-            f"评分将在独立Worker中异步执行，当前评测仅记录LLM输出"
-        )
-
     models = [m.strip() for m in model.split(",") if m.strip()]
 
     if dimension == "all":
@@ -283,23 +177,12 @@ def evaluate(
         import sys
 
         print("[BENCHMARK] Starting evaluation...", flush=True, file=sys.stderr)
-        if async_scoring_enabled:
-            print("[BENCHMARK] Starting scoring daemon...", flush=True, file=sys.stderr)
-            _start_scoring_daemon()
-            print("[BENCHMARK] Scoring daemon started", flush=True, file=sys.stderr)
         await start_timing_collection(timing_data_dir)
         print("[BENCHMARK] Running multi-evaluation...", flush=True, file=sys.stderr)
         try:
             await _run_multi_evaluation(models, dimensions, samples, debug)
             print("[BENCHMARK] Evaluation completed", flush=True, file=sys.stderr)
         finally:
-            if async_scoring_enabled:
-                print(
-                    "[BENCHMARK] Stopping scoring daemon...",
-                    flush=True,
-                    file=sys.stderr,
-                )
-                _stop_scoring_daemon()
             await stop_timing_collection()
 
     asyncio.run(_run_evaluation_with_timing())
