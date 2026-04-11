@@ -234,36 +234,19 @@ async def _evaluate_task(
             logger.info(f"[TASK] 评分开始 | task_id={task.task_id}")
             timing.start_phase("score_calculation")
 
-            async_scoring_enabled = (
-                os.getenv("ASYNC_SCORING_ENABLED", "false").lower() == "true"
-            )
-
-            if async_scoring_enabled:
-                # 异步评分模式：跳过同步评分，使用临时值
-                functional_score = 0.0
-                quality_score = 0.0
-                final_score = 0.0
-                passed = False
-                score_details = {"async_scoring": True, "status": "pending"}
-                score_reasoning = "Pending async scoring"
-                logger.info(
-                    f"[TASK] 异步评分模式 | task_id={task.task_id} | 跳过同步评分"
-                )
-            else:
-                # 原有同步评分逻辑
-                score_result = await _score_with_timing(scorer, ctx, timing)
-                functional_score = score_result.score
-                quality_score = 0.0
-                final_score = score_result.score
-                passed = score_result.passed
-                score_details = score_result.details
-                score_reasoning = getattr(score_result, "reasoning", "")
+            # 进程内协程评分（Worker 已移除）
+            score_result = await _score_with_timing(scorer, ctx, timing)
+            functional_score = score_result.score
+            quality_score = 0.0
+            final_score = score_result.score
+            passed = score_result.passed
+            score_details = score_result.details
+            score_reasoning = getattr(score_result, "reasoning", "")
 
             timing.end_phase("score_calculation")
             logger.info(
                 f"[TASK] 评分完成 | task_id={task.task_id} | "
-                f"score={final_score:.1f} | passed={passed} | "
-                f"async={async_scoring_enabled}"
+                f"score={final_score:.1f} | passed={passed}"
             )
 
             # Phase 3: DB write
@@ -288,25 +271,6 @@ async def _evaluate_task(
                 created_at=datetime.now(),
             )
             await db.asave_result(result)
-
-            # 异步评分模式：创建待评分任务
-            if async_scoring_enabled:
-                scoring_dimensions = _get_scoring_dimensions(task)
-                await db.acreate_scoring_task(
-                    result_id=result_id,
-                    run_id=run_id,
-                    task_id=task.task_id,
-                    dimension=task.dimension,
-                    dataset=task.dataset,
-                    prompt=task.prompt,
-                    expected_output=task.expected_output,
-                    model_output=ctx.raw_output,
-                    model_answer=ctx.model_answer,
-                    reasoning_content=ctx.reasoning_content or "",
-                    test_cases=task.test_cases,
-                    metadata=task.metadata,
-                    scoring_dimensions=scoring_dimensions,
-                )
 
             tps = gm.get("tokens_per_second", 0.0)
             await db.asave_metrics(
