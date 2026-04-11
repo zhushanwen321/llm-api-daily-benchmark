@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import tempfile
+import time
 
 import pytest
 
@@ -21,8 +22,6 @@ class TestTimingTracker:
         tracker = TimingTracker()
 
         tracker.start_phase("api_call")
-        import time
-
         time.sleep(0.01)
         tracker.end_phase("api_call")
 
@@ -35,8 +34,6 @@ class TestTimingTracker:
 
         tracker.start_phase("phase_a")
         tracker.start_phase("phase_b")
-
-        import time
 
         time.sleep(0.01)
         tracker.end_phase("phase_a")
@@ -73,8 +70,6 @@ class TestTimingTracker:
 
         tracker.start_phase("phase_1")
         tracker.start_phase("phase_2")
-
-        import time
 
         time.sleep(0.01)
         tracker.end_phase("phase_1")
