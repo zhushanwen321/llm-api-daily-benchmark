@@ -10,7 +10,7 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-import aiosqlite
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -190,171 +190,127 @@ class _TimingRecord:
 
 
 class TimingCollector:
-    """异步收集器：将 TimingTracker 数据非阻塞写入 SQLite."""
+    """异步收集器：将 TimingTracker 数据非阻塞写入 timing.jsonl."""
 
-    def __init__(self, db_path: str, max_queue_size: int = 10000) -> None:
-        self.db_path = db_path
+    def __init__(self, data_dir: str, max_queue_size: int = 10000) -> None:
+        self.data_dir = data_dir
         self._queue: asyncio.Queue[_TimingRecord | None] = asyncio.Queue(
             maxsize=max_queue_size
         )
         self._writer_task: Optional[asyncio.Task[None]] = None
         self._running = False
 
-        # 统计
         self._collected = 0
         self._dropped = 0
         self._written = 0
         self._write_errors = 0
 
-    async def _init_db(self, db: aiosqlite.Connection) -> None:
-        """初始化数据库表结构."""
-        await db.execute("PRAGMA journal_mode=WAL")
-        await db.execute(
-            """
-            CREATE TABLE IF NOT EXISTS timing_phases (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                result_id TEXT NOT NULL,
-                run_id TEXT NOT NULL,
-                model TEXT NOT NULL,
-                task_id TEXT NOT NULL,
-                phase_name TEXT NOT NULL,
-                start_time REAL NOT NULL,
-                end_time REAL NOT NULL,
-                duration REAL NOT NULL,
-                wait_time REAL NOT NULL,
-                active_time REAL NOT NULL,
-                metadata TEXT,
-                created_at TEXT NOT NULL
-            )
-            """
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_timing_result ON timing_phases(result_id)"
-        )
-        await db.execute(
-            "CREATE INDEX IF NOT EXISTS idx_timing_task ON timing_phases(task_id)"
-        )
-        await db.commit()
-
-    async def _write_record(
-        self, db: aiosqlite.Connection, record: _TimingRecord
-    ) -> None:
-        """写入单条记录到数据库."""
+    def _record_to_jsonl_lines(self, record: _TimingRecord) -> list[str]:
+        lines: list[str] = []
         for phase in record.timing._phases.values():
-            await db.execute(
-                """
-                INSERT INTO timing_phases (
-                    result_id, run_id, model, task_id, phase_name,
-                    start_time, end_time, duration, wait_time, active_time,
-                    metadata, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    record.result_id,
-                    record.run_id,
-                    record.model,
-                    record.task_id,
-                    phase.phase_name,
-                    phase.start_time,
-                    phase.end_time,
-                    phase.duration,
-                    phase.wait_time,
-                    phase.active_time,
-                    json.dumps(phase.metadata, ensure_ascii=False),
-                    record.created_at,
-                ),
-            )
-        await db.commit()
+            obj = {
+                "result_id": record.result_id,
+                "run_id": record.run_id,
+                "model": record.model,
+                "task_id": record.task_id,
+                "phase_name": phase.phase_name,
+                "start_time": phase.start_time,
+                "end_time": phase.end_time,
+                "duration": phase.duration,
+                "wait_time": phase.wait_time,
+                "active_time": phase.active_time,
+                "metadata": phase.metadata,
+                "created_at": record.created_at,
+            }
+            lines.append(json.dumps(obj, ensure_ascii=False))
+        return lines
+
+    def _write_record_sync(self, record: _TimingRecord) -> None:
+        lines = self._record_to_jsonl_lines(record)
+        if not lines:
+            return
+        path = Path(self.data_dir) / record.run_id / record.task_id / "timing.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            for line in lines:
+                f.write(line + "\n")
 
     async def _write_loop(self) -> None:
-        """写入循环：复用单个数据库连接，持续从队列消费并写入."""
         retry_delay = 1.0
         max_retry_delay = 60.0
 
-        db = await aiosqlite.connect(self.db_path, timeout=30)
-        try:
-            await db.execute("PRAGMA journal_mode=WAL")
-            await db.execute("PRAGMA busy_timeout=30000")
-            await self._init_db(db)
+        while self._running:
+            try:
+                async with asyncio.timeout(5.0):
+                    record = await self._queue.get()
 
-            while self._running:
-                try:
-                    async with asyncio.timeout(5.0):
-                        record = await self._queue.get()
-
-                    if record is None:
-                        break
-
-                    try:
-                        await self._write_record(db, record)
-                        self._written += 1
-                        retry_delay = 1.0
-
-                    except Exception:
-                        self._write_errors += 1
-                        logger.exception(
-                            "Failed to write timing record: result_id=%s",
-                            record.result_id,
-                        )
-                        if retry_delay <= max_retry_delay / 4:
-                            await asyncio.sleep(retry_delay)
-                            retry_delay = min(retry_delay * 2, max_retry_delay)
-                            try:
-                                self._queue.put_nowait(record)
-                            except asyncio.QueueFull:
-                                self._dropped += 1
-                                logger.error(
-                                    "Record dropped after write failure (queue full): result_id=%s",
-                                    record.result_id,
-                                )
-                        else:
-                            logger.error(
-                                "Record dropped after max retries: result_id=%s, retry_delay=%.1fs",
-                                record.result_id,
-                                retry_delay,
-                            )
-                            self._dropped += 1
-
-                except asyncio.TimeoutError:
-                    continue
-                except Exception:
-                    logger.exception("Unexpected error in _write_loop")
-                    await asyncio.sleep(1.0)
-
-            # 处理队列中剩余的记录
-            while not self._queue.empty():
-                try:
-                    record = self._queue.get_nowait()
-                    if record is None:
-                        continue
-                    try:
-                        await self._write_record(db, record)
-                        self._written += 1
-                    except Exception:
-                        self._write_errors += 1
-                        logger.exception(
-                            "Failed to flush remaining record: result_id=%s",
-                            record.result_id,
-                        )
-                except asyncio.QueueEmpty:
+                if record is None:
                     break
-        finally:
-            await db.close()
+
+                try:
+                    self._write_record_sync(record)
+                    self._written += 1
+                    retry_delay = 1.0
+
+                except Exception:
+                    self._write_errors += 1
+                    logger.exception(
+                        "Failed to write timing record: result_id=%s",
+                        record.result_id,
+                    )
+                    if retry_delay <= max_retry_delay / 4:
+                        await asyncio.sleep(retry_delay)
+                        retry_delay = min(retry_delay * 2, max_retry_delay)
+                        try:
+                            self._queue.put_nowait(record)
+                        except asyncio.QueueFull:
+                            self._dropped += 1
+                            logger.error(
+                                "Record dropped after write failure (queue full): result_id=%s",
+                                record.result_id,
+                            )
+                    else:
+                        logger.error(
+                            "Record dropped after max retries: result_id=%s, retry_delay=%.1fs",
+                            record.result_id,
+                            retry_delay,
+                        )
+                        self._dropped += 1
+
+            except asyncio.TimeoutError:
+                continue
+            except Exception:
+                logger.exception("Unexpected error in _write_loop")
+                await asyncio.sleep(1.0)
+
+        while not self._queue.empty():
+            try:
+                record = self._queue.get_nowait()
+                if record is None:
+                    continue
+                try:
+                    self._write_record_sync(record)
+                    self._written += 1
+                except Exception:
+                    self._write_errors += 1
+                    logger.exception(
+                        "Failed to flush remaining record: result_id=%s",
+                        record.result_id,
+                    )
+            except asyncio.QueueEmpty:
+                break
 
     def start(self) -> None:
-        """启动异步写入任务."""
         if self._running:
             return
         self._running = True
         self._writer_task = asyncio.create_task(self._write_loop())
-        logger.info("TimingCollector started: db=%s", self.db_path)
+        logger.info("TimingCollector started: data_dir=%s", self.data_dir)
 
     async def stop(self) -> None:
-        """停止写入任务并等待队列完成."""
         if not self._running:
             return
         self._running = False
-        # 发送停止信号
         try:
             self._queue.put_nowait(None)
         except asyncio.QueueFull:
@@ -380,7 +336,6 @@ class TimingCollector:
         task_id: str,
         run_id: str = "default",
     ) -> None:
-        """非阻塞收集数据，队列满时丢弃并计数."""
         try:
             record = _TimingRecord(
                 result_id=result_id,
@@ -399,7 +354,6 @@ class TimingCollector:
             )
 
     def get_stats(self) -> dict[str, Any]:
-        """返回统计信息."""
         return {
             "collected": self._collected,
             "dropped": self._dropped,
@@ -410,16 +364,11 @@ class TimingCollector:
         }
 
 
-# ============================================================================
-# 全局单例管理
-# ============================================================================
-
 _timing_collector: Optional[TimingCollector] = None
 _collector_lock = asyncio.Lock()
 
 
 def get_timing_collector() -> TimingCollector:
-    """获取已初始化的 TimingCollector 实例."""
     if _timing_collector is None:
         raise RuntimeError(
             "TimingCollector not initialized. Call init_timing_collector() first."
@@ -427,26 +376,23 @@ def get_timing_collector() -> TimingCollector:
     return _timing_collector
 
 
-def init_timing_collector(db_path: str) -> TimingCollector:
-    """同步初始化（不启动写入任务）."""
+def init_timing_collector(data_dir: str) -> TimingCollector:
     global _timing_collector
-    collector = TimingCollector(db_path)
+    collector = TimingCollector(data_dir)
     _timing_collector = collector
     return collector
 
 
-async def start_timing_collection(db_path: str) -> TimingCollector:
-    """异步启动收集器."""
+async def start_timing_collection(data_dir: str) -> TimingCollector:
     global _timing_collector
     async with _collector_lock:
         if _timing_collector is None:
-            _timing_collector = TimingCollector(db_path)
+            _timing_collector = TimingCollector(data_dir)
         _timing_collector.start()
         return _timing_collector
 
 
 async def stop_timing_collection() -> None:
-    """异步停止收集器."""
     global _timing_collector
     if _timing_collector is not None:
         await _timing_collector.stop()

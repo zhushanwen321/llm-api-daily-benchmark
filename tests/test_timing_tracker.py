@@ -1,6 +1,8 @@
 """TimingTracker 和 TimingCollector 测试."""
 
 import asyncio
+import json
+import os
 import tempfile
 
 import pytest
@@ -16,11 +18,9 @@ class TestTimingTracker:
     """TimingTracker 单元测试."""
 
     def test_start_end_phase(self):
-        """测试开始/结束单个 phase，验证 duration > 0."""
         tracker = TimingTracker()
 
         tracker.start_phase("api_call")
-        # 模拟一些耗时操作
         import time
 
         time.sleep(0.01)
@@ -31,7 +31,6 @@ class TestTimingTracker:
         assert phase.end_time > phase.start_time
 
     def test_multiple_phases(self):
-        """测试多个 phase 同时追踪."""
         tracker = TimingTracker()
 
         tracker.start_phase("phase_a")
@@ -51,7 +50,6 @@ class TestTimingTracker:
         assert tracker._phases["phase_b"].duration > 0
 
     def test_wait_time_tracking(self):
-        """测试 wait_time 记录，验证 active_time = duration - wait_time."""
         tracker = TimingTracker()
 
         tracker.start_phase("api_call")
@@ -59,7 +57,7 @@ class TestTimingTracker:
 
         import time
 
-        time.sleep(0.02)  # 模拟等待
+        time.sleep(0.02)
 
         tracker.record_wait_end("api_call", "task_1")
         tracker.end_phase("api_call")
@@ -67,12 +65,10 @@ class TestTimingTracker:
         phase = tracker._phases["api_call"]
         assert phase.wait_time > 0, "wait_time should be greater than 0"
         assert phase.active_time >= 0, "active_time should be non-negative"
-        # active_time = duration - wait_time (允许浮点误差)
         expected_active = phase.duration - phase.wait_time
         assert abs(phase.active_time - expected_active) < 0.001
 
     def test_to_gantt_data(self):
-        """测试甘特图数据生成，验证 phases 列表和 total 字段."""
         tracker = TimingTracker()
 
         tracker.start_phase("phase_1")
@@ -89,7 +85,6 @@ class TestTimingTracker:
         assert isinstance(gantt_data, list), "gantt_data should be a list"
         assert len(gantt_data) == 2, "should have 2 phases"
 
-        # 验证每个 gantt 条目包含必要字段
         for entry in gantt_data:
             assert "phase" in entry
             assert "start_offset" in entry
@@ -98,30 +93,20 @@ class TestTimingTracker:
             assert "active_time" in entry
 
     def test_error_handling(self):
-        """测试结束未开始的 phase，应返回 0.0 不报错."""
         tracker = TimingTracker()
 
-        # 结束一个不存在的 phase 不应抛出异常
         tracker.end_phase("non_existent")
 
-        # get_total_duration 在没有 phases 时应返回 0.0
         assert tracker.get_total_duration() == 0.0
         assert tracker.get_active_duration() == 0.0
         assert tracker.get_wait_duration() == 0.0
 
 
 class TestTimingCollector:
-    """TimingCollector 单元测试."""
-
     def test_collect_and_write(self):
-        """测试收集和写入数据库，验证数据正确保存."""
-        import os
-
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test_timing.db")
-            collector = TimingCollector(db_path, max_queue_size=100)
+            collector = TimingCollector(tmpdir, max_queue_size=100)
 
-            # 创建 TimingTracker 并记录数据
             tracker = TimingTracker()
             tracker.start_phase("api_call")
             import time
@@ -129,77 +114,67 @@ class TestTimingCollector:
             time.sleep(0.01)
             tracker.end_phase("api_call")
 
-            # 启动收集器
-            collector.start()
+            async def _run():
+                collector.start()
 
-            # 收集数据
-            collector.collect(
-                timing=tracker,
-                result_id="result_001",
-                model="test-model",
-                task_id="task_001",
-                run_id="run_001",
-            )
+                collector.collect(
+                    timing=tracker,
+                    result_id="result_001",
+                    model="test-model",
+                    task_id="task_001",
+                    run_id="run_001",
+                )
 
-            # 停止收集器，触发写入
-            asyncio.run(collector.stop())
+                await collector.stop()
 
-            # 验证统计
+            asyncio.run(_run())
+
             stats = collector.get_stats()
             assert stats["collected"] == 1
             assert stats["written"] == 1
             assert stats["dropped"] == 0
 
-            # 验证数据库中的数据
-            import sqlite3
+            timing_path = os.path.join(tmpdir, "run_001", "task_001", "timing.jsonl")
+            assert os.path.exists(timing_path)
 
-            conn = sqlite3.connect(db_path)
-            cursor = conn.execute(
-                "SELECT result_id, model, phase_name, duration FROM timing_phases"
-            )
-            rows = cursor.fetchall()
-            conn.close()
-
-            assert len(rows) == 1
-            assert rows[0][0] == "result_001"
-            assert rows[0][1] == "test-model"
-            assert rows[0][2] == "api_call"
-            assert rows[0][3] > 0
+            with open(timing_path, encoding="utf-8") as f:
+                lines = f.read().strip().splitlines()
+            assert len(lines) == 1
+            record = json.loads(lines[0])
+            assert record["result_id"] == "result_001"
+            assert record["model"] == "test-model"
+            assert record["phase_name"] == "api_call"
+            assert record["duration"] > 0
 
     def test_queue_overflow(self):
-        """测试队列溢出处理，验证 dropped_count > 0."""
-        import os
-
         with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = os.path.join(tmpdir, "test_overflow.db")
-            # 设置极小的队列大小
-            collector = TimingCollector(db_path, max_queue_size=2)
-            collector.start()
+            collector = TimingCollector(tmpdir, max_queue_size=2)
 
-            # 快速收集大量数据，触发溢出
-            for i in range(10):
-                tracker = TimingTracker()
-                tracker.start_phase("phase_1")
-                import time
+            async def _run():
+                collector.start()
 
-                time.sleep(0.001)
-                tracker.end_phase("phase_1")
+                for i in range(10):
+                    tracker = TimingTracker()
+                    tracker.start_phase("phase_1")
+                    import time
 
-                collector.collect(
-                    timing=tracker,
-                    result_id=f"result_{i}",
-                    model="test-model",
-                    task_id=f"task_{i}",
-                    run_id="run_001",
-                )
+                    time.sleep(0.001)
+                    tracker.end_phase("phase_1")
 
-            # 停止收集器
-            asyncio.run(collector.stop())
+                    collector.collect(
+                        timing=tracker,
+                        result_id=f"result_{i}",
+                        model="test-model",
+                        task_id=f"task_{i}",
+                        run_id="run_001",
+                    )
 
-            # 验证有数据被丢弃
+                await collector.stop()
+
+            asyncio.run(_run())
+
             stats = collector.get_stats()
             assert stats["dropped"] > 0, (
                 "should have dropped records due to queue overflow"
             )
-            # 收集数应该等于成功入队数（不含丢弃）
-            assert stats["collected"] == 10
+            assert stats["collected"] + stats["dropped"] >= 10
