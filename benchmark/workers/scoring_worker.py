@@ -379,63 +379,70 @@ class ScoringWorker:
         if not score_data:
             return
 
-        conn = self.db._get_conn()
+        def _do():
+            conn = self.db._get_conn()
 
-        scores = [
-            v["score"]
-            for v in score_data.values()
-            if isinstance(v.get("score"), (int, float))
-        ]
-        avg_score = round(sum(scores) / len(scores), 2) if scores else 0.0
-        passed = avg_score >= 60
+            scores = [
+                v["score"]
+                for v in score_data.values()
+                if isinstance(v.get("score"), (int, float))
+            ]
+            avg_score = round(sum(scores) / len(scores), 2) if scores else 0.0
+            passed = avg_score >= 60
 
-        composite_scores = {
-            k: v["score"]
-            for k, v in score_data.items()
-            if isinstance(v.get("score"), (int, float))
-        }
-        report_details = {
-            "composite": {"scores": composite_scores},
-            "async_scoring": False,
-        }
-        for k, v in score_data.items():
-            report_details[k] = {
-                "score": v.get("score", 0),
-                "passed": v.get("passed", False),
-                "reasoning": v.get("reasoning", ""),
+            composite_scores = {
+                k: v["score"]
+                for k, v in score_data.items()
+                if isinstance(v.get("score"), (int, float))
             }
+            report_details = {
+                "composite": {"scores": composite_scores},
+                "async_scoring": False,
+            }
+            for k, v in score_data.items():
+                report_details[k] = {
+                    "score": v.get("score", 0),
+                    "passed": v.get("passed", False),
+                    "reasoning": v.get("reasoning", ""),
+                }
 
-        conn.execute(
-            """UPDATE eval_results
-               SET functional_score = ?, quality_score = ?, final_score = ?, passed = ?, details = ?
-               WHERE result_id = ?
-            """,
-            (
-                avg_score,
-                avg_score,
-                avg_score,
-                int(passed),
-                json.dumps(report_details, ensure_ascii=False),
-                result_id,
-            ),
-        )
-        conn.commit()
+            conn.execute(
+                """UPDATE eval_results
+                   SET functional_score = ?, quality_score = ?, final_score = ?, passed = ?, details = ?
+                   WHERE result_id = ?
+                """,
+                (
+                    avg_score,
+                    avg_score,
+                    avg_score,
+                    int(passed),
+                    json.dumps(report_details, ensure_ascii=False),
+                    result_id,
+                ),
+            )
+            conn.commit()
+
+        self.db._write(_do)
 
     def _recover_stale_tasks(self) -> None:
         """恢复遗留的 processing 状态任务。"""
-        conn = self.db._get_conn()
-        cursor = conn.execute(
-            """UPDATE pending_scoring_tasks
-               SET status = 'pending', processing_started_at = NULL, updated_at = ?
-               WHERE status = 'processing'
-               AND processing_started_at < datetime('now', '-5 minutes')
-            """,
-            (datetime.now().isoformat(),),
-        )
-        recovered = cursor.rowcount
-        if recovered > 0:
-            conn.commit()
-            logger.info("Recovered %d stale tasks from processing state", recovered)
+
+        def _do():
+            conn = self.db._get_conn()
+            cursor = conn.execute(
+                """UPDATE pending_scoring_tasks
+                   SET status = 'pending', processing_started_at = NULL, updated_at = ?
+                   WHERE status = 'processing'
+                   AND processing_started_at < datetime('now', '-5 minutes')
+                """,
+                (datetime.now().isoformat(),),
+            )
+            recovered = cursor.rowcount
+            if recovered > 0:
+                conn.commit()
+                logger.info("Recovered %d stale tasks from processing state", recovered)
+
+        self.db._write(_do)
 
     def stop(self) -> None:
         """请求停止 Worker。"""
