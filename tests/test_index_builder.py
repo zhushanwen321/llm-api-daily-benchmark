@@ -19,8 +19,9 @@ def _write_status(
     scored: int = 0,
     status: str = "running",
     created_at: str = "2025-01-01T00:00:00+00:00",
+    execution_id: str = "bench_test_0001",
 ) -> None:
-    d = data_root / benchmark_id
+    d = data_root / execution_id / benchmark_id
     d.mkdir(parents=True, exist_ok=True)
     payload: dict[str, Any] = {
         "benchmark_id": benchmark_id,
@@ -45,8 +46,9 @@ def _write_metadata(
     dimension: str,
     dataset: str,
     started_at: str = "2025-01-01T00:00:00+00:00",
+    execution_id: str = "bench_test_0001",
 ) -> None:
-    d = data_root / benchmark_id
+    d = data_root / execution_id / benchmark_id
     d.mkdir(parents=True, exist_ok=True)
     record: dict[str, Any] = {
         "benchmark_id": benchmark_id,
@@ -67,8 +69,9 @@ def _write_scoring(
     task_id: str,
     final_score: float = 80.0,
     scoring_status: str = "completed",
+    execution_id: str = "bench_test_0001",
 ) -> None:
-    d = data_root / benchmark_id / question_id
+    d = data_root / execution_id / benchmark_id / question_id
     d.mkdir(parents=True, exist_ok=True)
     record: dict[str, Any] = {
         "task_id": task_id,

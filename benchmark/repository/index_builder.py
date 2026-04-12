@@ -8,7 +8,7 @@ from benchmark.repository.atomic_write import atomic_write
 
 
 class IndexBuilder:
-    """扫描 data/ 下所有 benchmark_id 目录，构建 data/index.jsonl。
+    """扫描 data/{execution_id}/{run_id}/ 两级目录，构建 data/index.jsonl。
 
     每行包含：benchmark_id, model, dimension, dataset, total_questions,
     answered, scored, status, avg_score, created_at
@@ -22,15 +22,18 @@ class IndexBuilder:
 
     def build(self) -> None:
         rows: list[dict[str, Any]] = []
-        for entry in sorted(self._root.iterdir()):
-            if not entry.is_dir():
+        for exec_entry in sorted(self._root.iterdir()):
+            if not exec_entry.is_dir():
                 continue
-            status_path = entry / "status.json"
-            if not status_path.exists():
-                continue
-            row = self._build_row(entry.name, status_path)
-            if row is not None:
-                rows.append(row)
+            for run_entry in sorted(exec_entry.iterdir()):
+                if not run_entry.is_dir():
+                    continue
+                status_path = run_entry / "status.json"
+                if not status_path.exists():
+                    continue
+                row = self._build_row(run_entry.name, status_path)
+                if row is not None:
+                    rows.append(row)
         content = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
         atomic_write(str(self._index_path), content)
 
@@ -71,7 +74,7 @@ class IndexBuilder:
         }
 
     def _read_metadata(self, benchmark_id: str) -> dict[str, Any] | None:
-        meta_path = self._root / benchmark_id / "metadata.jsonl"
+        meta_path = self._find_run_dir(benchmark_id) / "metadata.jsonl"
         if not meta_path.exists():
             return None
         lines = meta_path.read_text(encoding="utf-8").splitlines()
@@ -85,7 +88,7 @@ class IndexBuilder:
         return None
 
     def _calc_avg_score(self, benchmark_id: str) -> float | None:
-        bench_dir = self._root / benchmark_id
+        bench_dir = self._find_run_dir(benchmark_id)
         if not bench_dir.exists():
             return None
         scores: list[float] = []
@@ -109,6 +112,16 @@ class IndexBuilder:
                         scores.append(float(final))
                 break
         return sum(scores) / len(scores) if scores else None
+
+    def _find_run_dir(self, benchmark_id: str) -> Path:
+        """在所有 execution 目录下查找指定的 run_id 目录。"""
+        for exec_entry in self._root.iterdir():
+            if not exec_entry.is_dir():
+                continue
+            candidate = exec_entry / benchmark_id
+            if candidate.is_dir():
+                return candidate
+        return self._root / benchmark_id
 
     def _ensure_index(self) -> None:
         if not self._index_path.exists():

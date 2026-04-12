@@ -21,6 +21,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Literal
 
 from benchmark.analysis.models import AnomalyDetail, ChangePoint, StabilityReport
+from benchmark.core.tz import now as _now
 
 if TYPE_CHECKING:
     from benchmark.repository import FileRepository
@@ -101,7 +102,7 @@ class StabilityAnalyzer:
             change_points=change_points,
             stat_tests=stat_tests,
             summary=summary,
-            created_at=datetime.now(),
+            created_at=_now(),
         )
 
         # 10. 保存到数据库
@@ -118,9 +119,9 @@ class StabilityAnalyzer:
 
     async def _get_history_scores(self, model: str, dimension: str) -> list[dict]:
         """获取历史 final_score，包含 run_id、final_score、created_at。"""
-        from datetime import datetime, timedelta
+        from datetime import timedelta
 
-        cutoff = datetime.now() - timedelta(days=self._history_days)
+        cutoff = _now() - timedelta(days=self._history_days)
         results = await self._repo.aget_results(model=model, dimension=dimension)
         history = []
         for r in results:
@@ -302,10 +303,10 @@ class StabilityAnalyzer:
 
         # 追加当前 run 的分数
         if current_scores:
-            now = datetime.now()
+            now_ts = _now()
             for s in current_scores:
                 values.append(float(s))
-                timestamps.append(now)
+                timestamps.append(now_ts)
 
         return values, timestamps
 

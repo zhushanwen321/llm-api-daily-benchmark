@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from pathlib import Path
 
+from benchmark.core.tz import now
 from benchmark.repository.handlers.metadata_handler import FileAppend
 
 
@@ -19,7 +19,7 @@ class ExecutionLogHandler:
 
     @staticmethod
     def _now() -> str:
-        return datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        return now().strftime("%Y-%m-%d %H:%M:%S")
 
     def append_log(
         self,

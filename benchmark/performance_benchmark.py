@@ -6,10 +6,10 @@ from __future__ import annotations
 import argparse
 import asyncio
 import time
-from datetime import datetime
 from typing import Any
 
 from benchmark.core.llm_adapter import LLMEvalAdapter
+from benchmark.core.tz import now
 from benchmark.analysis.quality_signals import QualitySignalCollector
 
 
@@ -24,7 +24,7 @@ class PerformanceBenchmark:
         print(f"Phase 1 性能基准测试")
         print(f"Model: {self.model}")
         print(f"Samples: {self.samples}")
-        print(f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Time: {now().strftime('%Y-%m-%d %H:%M:%S')}")
         print(f"{'=' * 60}\n")
 
         await self.benchmark_concurrent_execution()
@@ -189,7 +189,7 @@ class PerformanceBenchmark:
         lines.append("\n" + "=" * 60)
         lines.append("性能基准测试报告")
         lines.append("=" * 60)
-        lines.append(f"测试时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+        lines.append(f"测试时间: {now().strftime('%Y-%m-%d %H:%M:%S')}")
         lines.append(f"测试模型: {self.model}")
         lines.append("")
 

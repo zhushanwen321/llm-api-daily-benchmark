@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
-from datetime import datetime
-
+from benchmark.core.tz import now
 from benchmark.models.schemas import TaskDefinition, EvalResult
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.probes import BaseProbe
@@ -128,7 +127,7 @@ class ConsistencyProbe(BaseProbe):
         similarity = self._calculate_similarity(response.content, expected)
 
         return EvalResult(
-            result_id=f"{model}_{probe.task_id}_{datetime.now().timestamp()}",
+            result_id=f"{model}_{probe.task_id}_{now().timestamp()}",
             run_id="",
             task_id=probe.task_id,
             task_content=probe.prompt,
@@ -137,7 +136,7 @@ class ConsistencyProbe(BaseProbe):
             final_score=similarity,
             passed=similarity >= 70.0,
             execution_time=response.duration,
-            created_at=datetime.now(),
+            created_at=now(),
             details={
                 "group_id": probe.metadata.get("group_id", "unknown"),
                 "category": probe.metadata.get("category", "unknown"),

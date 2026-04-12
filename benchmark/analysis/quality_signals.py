@@ -8,6 +8,8 @@ import statistics
 import time
 from typing import TYPE_CHECKING
 
+from benchmark.core.tz import now
+
 if TYPE_CHECKING:
     from benchmark.models.schemas import TaskDefinition
     from benchmark.repository import FileRepository
@@ -294,7 +296,7 @@ class QualitySignalCollector:
 
         from datetime import datetime, timedelta
 
-        cutoff = datetime.now() - timedelta(days=days)
+        cutoff = now() - timedelta(days=days)
 
         runs = await asyncio.to_thread(
             self._repo.get_runs,

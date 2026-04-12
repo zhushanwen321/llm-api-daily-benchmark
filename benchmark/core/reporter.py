@@ -12,6 +12,7 @@ from typing import Any
 import jinja2
 
 from benchmark.core.advanced_statistics import pairwise_comparison
+from benchmark.core.tz import now
 from benchmark.repository.file_repository import FileRepository
 
 
@@ -28,7 +29,7 @@ async def generate_html_report(
         repo, models=models, dimensions=dimensions, date_range=date_range
     )
     if not rows:
-        raise ValueError("No results found in database")
+        raise ValueError("No results found")
 
     # 提取模型和维度列表
     model_list = sorted(set(r["model"] for r in rows))
@@ -77,7 +78,7 @@ async def generate_html_report(
     template = env.get_template("report.html")
 
     html = template.render(
-        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        generated_at=now().strftime("%Y-%m-%d %H:%M:%S"),
         models=model_list,
         dimensions=dim_list,
         date_range=date_range if date_range else "All time",

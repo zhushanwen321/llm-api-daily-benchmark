@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from benchmark.core.tz import now
 from benchmark.repository.atomic_write import atomic_write
 
 
@@ -21,7 +21,7 @@ class StatusHandler:
 
     @staticmethod
     def _now() -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return now().isoformat()
 
     def create(
         self,

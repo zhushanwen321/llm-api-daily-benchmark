@@ -13,6 +13,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
 
+from benchmark.core.tz import now
+
 import pandas as pd
 
 from benchmark.analysis.models import ClusterReport, StabilityReport
@@ -45,21 +47,30 @@ class FileRepository(Repository):
     - ClusterHandler: cluster_reports.jsonl 管理
     """
 
-    def __init__(self, data_root: Path | str = "data") -> None:
+    def __init__(
+        self,
+        data_root: Path | str = "data",
+        execution_id: str | None = None,
+    ) -> None:
         self._root = Path(data_root)
         self._root.mkdir(parents=True, exist_ok=True)
 
-        # 初始化所有 handlers
-        self._status = StatusHandler(self._root)
-        self._metadata = MetadataHandler(self._root)
-        self._answer = AnswerHandler(self._root)
-        self._scoring = ScoringHandler(self._root)
-        self._timing = TimingHandler(self._root)
-        self._execution_log = ExecutionLogHandler(self._root)
-        self._analysis = AnalysisHandler(self._root)
+        # 生成或接收 execution_id，用于区分不同的 CLI 执行批次
+        self._execution_id = execution_id or self._generate_execution_id()
+        self._exec_dir = self._root / self._execution_id
+        self._exec_dir.mkdir(parents=True, exist_ok=True)
+
+        # handlers 的 root 指向 execution 目录，自动按批次隔离
+        self._status = StatusHandler(self._exec_dir)
+        self._metadata = MetadataHandler(self._exec_dir)
+        self._answer = AnswerHandler(self._exec_dir)
+        self._scoring = ScoringHandler(self._exec_dir)
+        self._timing = TimingHandler(self._exec_dir)
+        self._execution_log = ExecutionLogHandler(self._exec_dir)
+        self._analysis = AnalysisHandler(self._exec_dir)
         self._cluster = ClusterHandler(self._root)
 
-        # 初始化 IndexBuilder
+        # IndexBuilder 的 root 仍是 data/，扫描所有 execution 目录
         self._index_builder = IndexBuilder(self._root)
 
         # scoring task ID → (benchmark_id, question_id) 缓存
@@ -124,7 +135,7 @@ class FileRepository(Repository):
         Returns:
             result_id: 结果记录 ID
         """
-        now = datetime.now(timezone.utc)
+        now_ts = now()
 
         result = EvalResult(
             result_id=answer_data.get("result_id", self._generate_id()),
@@ -141,7 +152,7 @@ class FileRepository(Repository):
             passed=answer_data.get("passed", False),
             details=answer_data.get("details", {}),
             execution_time=answer_data.get("execution_time", 0.0),
-            created_at=now,
+            created_at=now_ts,
         )
 
         metrics = None
@@ -156,7 +167,7 @@ class FileRepository(Repository):
                 tokens_per_second=api_metrics.get("tokens_per_second", 0.0),
                 ttft=api_metrics.get("ttft", 0.0),
                 ttft_content=api_metrics.get("ttft_content", 0.0),
-                created_at=now,
+                created_at=now_ts,
             )
 
         # 保存答案
@@ -242,31 +253,19 @@ class FileRepository(Repository):
         return self._status.is_completed(benchmark_id)
 
     def get_active_benchmark_runs(self) -> list[EvalRun]:
-        """获取所有未完成的运行记录。
-
-        Returns:
-            未完成的 EvalRun 列表
-        """
+        """获取所有未完成的运行记录。"""
         active_runs: list[EvalRun] = []
 
-        for entry in sorted(self._root.iterdir()):
-            if not entry.is_dir():
-                continue
-
-            status_path = entry / "status.json"
-            if not status_path.exists():
-                continue
-
+        for run_dir in self._iter_run_dirs():
             try:
-                status = self._status.get(entry.name)
+                status = self._status.get(run_dir.name)
                 if status.get("status") not in ("completed", "failed"):
-                    # 读取 metadata 获取 dataset
-                    metadata = self._metadata.read(entry.name)
+                    metadata = self._metadata.read(run_dir.name)
                     dataset = metadata.get("dataset", "")
 
                     active_runs.append(
                         EvalRun(
-                            run_id=entry.name,
+                            run_id=run_dir.name,
                             model=status.get("model", ""),
                             dimension=status.get("dimension", ""),
                             dataset=dataset,
@@ -418,34 +417,29 @@ class FileRepository(Repository):
         """查询评测结果列表。"""
         results: list[dict[str, Any]] = []
 
-        # 确定要查询的 benchmark_ids
-        benchmark_ids: list[str] = []
-        if run_id:
-            benchmark_ids = [run_id]
-        else:
-            # 从 index 或扫描目录获取
-            for entry in sorted(self._root.iterdir()):
-                if entry.is_dir() and (entry / "status.json").exists():
-                    benchmark_ids.append(entry.name)
+        run_dirs = (
+            [d for d in self._iter_run_dirs() if d.name == run_id]
+            if run_id
+            else self._iter_run_dirs()
+        )
 
-        for bid in benchmark_ids:
+        for run_dir in run_dirs:
+            benchmark_id = run_dir.name
             try:
-                status = self._status.get(bid)
+                status = self._status.get(benchmark_id)
 
-                # 过滤条件
                 if model and status.get("model") != model:
                     continue
                 if dimension and status.get("dimension") != dimension:
                     continue
 
-                # 获取所有答案
-                answers = self._answer.get_answers_by_run(bid)
+                answers = self._answer.get_answers_by_run(benchmark_id)
 
                 for ans in answers:
                     answer_data = ans.get("answer", {})
                     result = {
                         "result_id": answer_data.get("result_id"),
-                        "run_id": bid,
+                        "run_id": benchmark_id,
                         "task_id": answer_data.get("task_id"),
                         "model": status.get("model"),
                         "dimension": status.get("dimension"),
@@ -466,18 +460,13 @@ class FileRepository(Repository):
 
     def get_result_detail(self, result_id: str) -> Optional[dict[str, Any]]:
         """获取单条结果的完整详情。"""
-        # 需要遍历所有 runs 找到对应的 result
-        for entry in sorted(self._root.iterdir()):
-            if not entry.is_dir():
-                continue
-
-            benchmark_id = entry.name
+        for run_dir in self._iter_run_dirs():
+            benchmark_id = run_dir.name
             answers = self._answer.get_answers_by_run(benchmark_id)
 
             for ans in answers:
                 answer_data = ans.get("answer", {})
                 if answer_data.get("result_id") == result_id:
-                    # 找到匹配的 result，构造详情
                     try:
                         status = self._status.get(benchmark_id)
                         model = status.get("model", "")
@@ -543,7 +532,7 @@ class FileRepository(Repository):
         runs = self.get_runs(model=model, dimension=dimension)
 
         # 过滤最近 N 天的数据
-        cutoff = datetime.now(timezone.utc).timestamp() - days * 24 * 3600
+        cutoff = now().timestamp() - days * 24 * 3600
 
         trends: list[dict[str, Any]] = []
         for run in runs:
@@ -603,9 +592,7 @@ class FileRepository(Repository):
                 ],
                 "stat_tests": getattr(report, "stat_tests", []),
                 "summary": getattr(report, "summary", ""),
-                "created_at": getattr(
-                    report, "created_at", datetime.now(timezone.utc)
-                ).isoformat(),
+                "created_at": getattr(report, "created_at", now()).isoformat(),
             }
             return self.save_analysis_data(
                 benchmark_id=analysis_data["benchmark_id"],
@@ -621,7 +608,7 @@ class FileRepository(Repository):
         """保存聚类报告。"""
         if isinstance(report, ClusterReport):
             self._cluster.save_report(report)
-            return f"cluster_{report.model}_{int(datetime.now().timestamp())}"
+            return f"cluster_{report.model}_{int(now().timestamp())}"
         else:
             raise ValueError(f"Unsupported report type: {type(report)}")
 
@@ -650,7 +637,7 @@ class FileRepository(Repository):
         """获取某个 run 的所有质量信号。"""
         signals: list[dict[str, Any]] = []
 
-        bench_dir = self._root / run_id
+        bench_dir = self._exec_dir / run_id
         if not bench_dir.exists():
             return signals
 
@@ -682,7 +669,7 @@ class FileRepository(Repository):
         runs = self.get_runs(model=model)
 
         # 过滤最近 N 天
-        cutoff = datetime.now(timezone.utc).timestamp() - days * 24 * 3600
+        cutoff = now().timestamp() - days * 24 * 3600
 
         history: list[dict[str, Any]] = []
         for run in runs:
@@ -712,11 +699,8 @@ class FileRepository(Repository):
         """查询稳定性报告。"""
         reports: list[dict[str, Any]] = []
 
-        for entry in sorted(self._root.iterdir()):
-            if not entry.is_dir():
-                continue
-
-            analysis_list = self._analysis.get_analysis(entry.name)
+        for run_dir in self._iter_run_dirs():
+            analysis_list = self._analysis.get_analysis(run_dir.name)
             for analysis in analysis_list:
                 if analysis.get("report_type") == "stability":
                     if model and analysis.get("model") != model:
@@ -751,34 +735,28 @@ class FileRepository(Repository):
         """查询耗时阶段数据。"""
         records: list[dict[str, Any]] = []
 
-        # 确定要查询的 runs
-        benchmark_ids: list[str] = []
-        if run_id:
-            benchmark_ids = [run_id]
-        else:
-            for entry in sorted(self._root.iterdir()):
-                if entry.is_dir() and (entry / "status.json").exists():
-                    benchmark_ids.append(entry.name)
+        run_dirs = (
+            [d for d in self._iter_run_dirs() if d.name == run_id]
+            if run_id
+            else self._iter_run_dirs()
+        )
 
-        for bid in benchmark_ids:
+        for run_dir in run_dirs:
+            bid = run_dir.name
             try:
                 status = self._status.get(bid)
 
-                # 过滤 model
                 if model and status.get("model") != model:
                     continue
 
-                # 获取该 run 的所有 timing 数据
                 timing_records = self._timing.get_timing_by_run(bid)
 
                 for record in timing_records:
-                    # 过滤条件
                     if phase_name and record.get("phase_name") != phase_name:
                         continue
                     if result_id and record.get("result_id") != result_id:
                         continue
 
-                    # 日期过滤
                     if start_date or end_date:
                         created_at = record.get("created_at", "")
                         if created_at:
@@ -885,11 +863,8 @@ class FileRepository(Repository):
         """拉取待处理任务并原子锁定。"""
         tasks: list[dict[str, Any]] = []
 
-        for entry in sorted(self._root.iterdir()):
-            if not entry.is_dir():
-                continue
-
-            benchmark_id = entry.name
+        for run_dir in self._iter_run_dirs():
+            benchmark_id = run_dir.name
             pending = self._scoring.find_pending(benchmark_id)
 
             for task in pending:
@@ -927,11 +902,8 @@ class FileRepository(Repository):
             self._task_location_cache.pop(task_id, None)
             return
 
-        for entry in sorted(self._root.iterdir()):
-            if not entry.is_dir():
-                continue
-
-            benchmark_id = entry.name
+        for run_dir in self._iter_run_dirs():
+            benchmark_id = run_dir.name
             pending = self._scoring.find_pending(benchmark_id)
 
             for task in pending:
@@ -971,11 +943,8 @@ class FileRepository(Repository):
             self._task_location_cache.pop(task_id, None)
             return
 
-        for entry in sorted(self._root.iterdir()):
-            if not entry.is_dir():
-                continue
-
-            benchmark_id = entry.name
+        for run_dir in self._iter_run_dirs():
+            benchmark_id = run_dir.name
             pending = self._scoring.find_pending(benchmark_id)
 
             for task in pending:
@@ -1005,13 +974,10 @@ class FileRepository(Repository):
             self._scoring.mark_pending(benchmark_id, question_id)
             return
 
-        for entry in sorted(self._root.iterdir()):
-            if not entry.is_dir():
-                continue
+        for run_dir in self._iter_run_dirs():
+            benchmark_id = run_dir.name
 
-            benchmark_id = entry.name
-
-            for question_dir in entry.iterdir():
+            for question_dir in run_dir.iterdir():
                 if not question_dir.is_dir():
                     continue
 
@@ -1036,16 +1002,26 @@ class FileRepository(Repository):
         """获取待处理任务数量。"""
         count = 0
 
-        for entry in sorted(self._root.iterdir()):
-            if not entry.is_dir():
-                continue
-
-            pending = self._scoring.find_pending(entry.name)
+        for run_dir in self._iter_run_dirs():
+            pending = self._scoring.find_pending(run_dir.name)
             count += len(pending)
 
         return count
 
     # ── 辅助方法 ──
+
+    def _iter_run_dirs(self) -> list[Path]:
+        """扫描 data/{execution_id}/{run_id}/ 的所有 run 目录（跨执行）。"""
+        run_dirs: list[Path] = []
+        for exec_entry in sorted(self._root.iterdir()):
+            if not exec_entry.is_dir():
+                continue
+            for run_entry in sorted(exec_entry.iterdir()):
+                if not run_entry.is_dir():
+                    continue
+                if (run_entry / "status.json").exists():
+                    run_dirs.append(run_entry)
+        return run_dirs
 
     @staticmethod
     def _read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -1061,9 +1037,15 @@ class FileRepository(Repository):
         return records
 
     @staticmethod
+    def _generate_execution_id() -> str:
+        timestamp = now().strftime("%Y%m%d_%H%M%S")
+        unique = uuid.uuid4().hex[:8]
+        return f"bench_{timestamp}_{unique}"
+
+    @staticmethod
     def _generate_benchmark_id(model: str, dimension: str) -> str:
         """生成 benchmark_id。"""
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        timestamp = now().strftime("%Y%m%d_%H%M%S")
         model_slug = model.replace("/", "_").replace(".", "_")
         unique = uuid.uuid4().hex[:8]
         return f"{model_slug}_{dimension}_{timestamp}_{unique}"

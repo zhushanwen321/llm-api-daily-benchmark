@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import uuid
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +27,6 @@ from benchmark.core.timing_tracker import (
     start_timing_collection,
     stop_timing_collection,
 )
-from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.repository import FileRepository
 from benchmark.scorers.composite import CompositeScorer
 
@@ -155,41 +153,59 @@ async def _evaluate_task(
                 f"[TASK] 数据保存开始 | task_id={task.task_id} | result_id={result_id}"
             )
             timing.start_phase("db_write")
-            result = EvalResult(
-                result_id=result_id,
-                run_id=run_id,
-                task_id=task.task_id,
-                task_content=task.prompt,
-                model_output=ctx.raw_output,
-                model_think=ctx.reasoning_content,
-                model_answer=ctx.model_answer,
-                expected_output=task.expected_output,
-                functional_score=functional_score,
-                final_score=final_score,
-                passed=passed,
-                details=score_details,
-                execution_time=api_duration,
-                created_at=datetime.now(),
-            )
-            await repo.asave_result(result)
 
             tps = gm.get("tokens_per_second", 0.0)
-            await repo.asave_metrics(
-                ApiCallMetrics(
-                    result_id=result_id,
-                    prompt_tokens=gm.get("prompt_tokens", 0),
-                    completion_tokens=gm.get("completion_tokens", 0),
-                    reasoning_tokens=gm.get("reasoning_tokens", 0),
-                    reasoning_content=ctx.reasoning_content,
-                    duration=api_duration,
-                    tokens_per_second=tps,
-                    ttft=gm.get("ttft", 0.0),
-                    ttft_content=gm.get("ttft_content", 0.0),
-                    created_at=datetime.now(),
-                ),
-                run_id=run_id,
-                task_id=task.task_id,
+            metrics_data = {
+                "prompt_tokens": gm.get("prompt_tokens", 0),
+                "completion_tokens": gm.get("completion_tokens", 0),
+                "reasoning_tokens": gm.get("reasoning_tokens", 0),
+                "reasoning_content": ctx.reasoning_content,
+                "duration": api_duration,
+                "tokens_per_second": tps,
+                "ttft": gm.get("ttft", 0.0),
+                "ttft_content": gm.get("ttft_content", 0.0),
+            }
+
+            answer_data = {
+                "result_id": result_id,
+                "task_content": task.prompt,
+                "model_output": ctx.raw_output,
+                "model_think": ctx.reasoning_content,
+                "model_answer": ctx.model_answer,
+                "expected_output": task.expected_output,
+                "functional_score": functional_score,
+                "quality_score": quality_score,
+                "final_score": final_score,
+                "passed": passed,
+                "details": score_details,
+                "execution_time": api_duration,
+            }
+
+            await asyncio.to_thread(
+                repo.save_question_result,
+                run_id,
+                task.task_id,
+                answer_data,
+                metrics_data,
             )
+
+            scoring_data = {
+                "task_id": task.task_id,
+                "functional_score": functional_score,
+                "quality_score": quality_score,
+                "final_score": final_score,
+                "passed": passed,
+                "details": score_details,
+                "reasoning": score_reasoning,
+                "scoring_status": "completed",
+            }
+            await asyncio.to_thread(
+                repo.save_question_scoring,
+                run_id,
+                task.task_id,
+                scoring_data,
+            )
+
             timing.end_phase("db_write")
             logger.info(
                 f"[TASK] 数据保存完成 | task_id={task.task_id} | result_id={result_id}"
@@ -294,7 +310,12 @@ async def run_evaluation(
     adapter = adapter_cls()
     evaluator = evaluator_cls()
     llm = LLMEvalAdapter(model=model)
-    scorer = CompositeScorer(scorer_factory())
+    _scorers_list = scorer_factory()
+    if len(_scorers_list) == 1 and abs(_scorers_list[0][0] - 1.0) < 1e-9:
+        # 单 scorer 权重为 1.0 时直接透传，避免 CompositeScorer 覆盖 passed 判断
+        scorer = _scorers_list[0][1]
+    else:
+        scorer = CompositeScorer(_scorers_list)
 
     logger.debug(
         f"加载适配器: {adapter_cls.__name__}, 评分器: {type(scorer).__name__}, 编排器: {evaluator_cls.__name__}"
@@ -312,20 +333,19 @@ async def run_evaluation(
         f"{dimension} with {len(tasks)} tasks, model={model}"
     )
 
-    run_id = str(uuid.uuid4())[:12]
-    run = EvalRun(
-        run_id=run_id,
-        model=model,
-        dimension=dimension,
-        dataset=DATASET_REGISTRY[dimension],
-        started_at=datetime.now(),
-        status="running",
-    )
     own_repo = repo is None
     if own_repo:
         repo = FileRepository()
+    run_id: str = ""
     try:
-        await asyncio.to_thread(repo.create_run, run)
+        question_ids = [t.task_id for t in tasks]
+        run_id = await asyncio.to_thread(
+            repo.create_benchmark_run,
+            model=model,
+            dimension=dimension,
+            dataset=DATASET_REGISTRY[dimension],
+            questions=question_ids,
+        )
 
         coros = [
             _evaluate_task(
@@ -452,12 +472,10 @@ async def run_evaluation(
 
         if failed_count == 0:
             await asyncio.to_thread(repo.finish_run, run_id, "completed")
+        elif failed_count < len(tasks):
+            await asyncio.to_thread(repo.finish_run, run_id, "completed")
         else:
-            await asyncio.to_thread(
-                repo.finish_run,
-                run_id,
-                "partial" if failed_count < len(tasks) else "failed",
-            )
+            await asyncio.to_thread(repo.finish_run, run_id, "failed")
 
         avg_score = total_score / len(tasks) if tasks else 0
         summary = (
@@ -471,7 +489,8 @@ async def run_evaluation(
     except Exception:
         console.print("[red]Evaluation failed![/red]")
         try:
-            await asyncio.to_thread(repo.finish_run, run_id, "failed")
+            if run_id:
+                await asyncio.to_thread(repo.finish_run, run_id, "failed")
         except Exception:
             pass
         raise

@@ -2,10 +2,10 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from benchmark.core.tz import now
 from benchmark.repository.handlers.metadata_handler import FileAppend
 
 
@@ -27,7 +27,7 @@ class AnalysisHandler:
 
     @staticmethod
     def _now() -> str:
-        return datetime.now(timezone.utc).isoformat()
+        return now().isoformat()
 
     def save_analysis(
         self,

@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import json
 import math
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Literal
+
+from benchmark.core.tz import now
 
 # 13 个需要聚合的质量信号键名，顺序与任务规格一致
 _AGGREGATE_SIGNAL_KEYS: tuple[str, ...] = (
@@ -65,7 +66,9 @@ class FingerprintManager:
         run_id: str = "",
     ) -> dict:
         """生成指纹向量（33 维）并保存。"""
-        return self.generate_fingerprint_sync(model, scores, quality_signals, run_id=run_id)
+        return self.generate_fingerprint_sync(
+            model, scores, quality_signals, run_id=run_id
+        )
 
     def generate_fingerprint_sync(
         self,
@@ -78,7 +81,7 @@ class FingerprintManager:
         vector = self._build_vector(scores, quality_signals)
         fingerprint = {
             "model": model,
-            "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+            "timestamp": now().strftime("%Y-%m-%dT%H:%M:%S.%f"),
             "run_id": run_id,
             "vector": vector,
         }
@@ -88,7 +91,9 @@ class FingerprintManager:
 
         # 写入时间戳文件
         ts_file = model_dir / f"{fingerprint['timestamp']}.json"
-        ts_file.write_text(json.dumps(fingerprint, ensure_ascii=False), encoding="utf-8")
+        ts_file.write_text(
+            json.dumps(fingerprint, ensure_ascii=False), encoding="utf-8"
+        )
 
         # 如果基线不存在则创建
         baseline_file = model_dir / "baseline.json"
@@ -199,11 +204,7 @@ class FingerprintManager:
 
     def _load_latest_fingerprint(self, model_dir: Path) -> dict | None:
         """加载指定模型目录下最新的非基线指纹文件。"""
-        candidates = [
-            f
-            for f in model_dir.glob("*.json")
-            if f.name != "baseline.json"
-        ]
+        candidates = [f for f in model_dir.glob("*.json") if f.name != "baseline.json"]
         if not candidates:
             return None
 

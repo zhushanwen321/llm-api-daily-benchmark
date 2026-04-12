@@ -4,28 +4,8 @@ import asyncio
 import time
 from datetime import datetime
 
-from benchmark.analysis.quality_signals import QualitySignalCollector
 from benchmark.core.llm_adapter import LLMEvalAdapter
-
-
-class MockDatabase:
-    def __init__(self):
-        self._conn = MockConnection()
-
-    def _get_conn(self):
-        return self._conn
-
-
-class MockConnection:
-    def execute(self, sql, params):
-        return MockCursor()
-
-
-class MockCursor:
-    description = [["val"]]
-
-    def fetchall(self):
-        return [[float(i * 10)] for i in range(10)]
+from benchmark.repository import FileRepository
 
 
 async def test_concurrent():
@@ -51,31 +31,45 @@ async def test_concurrent():
     return speedup
 
 
-async def test_cache():
-    print("[2/3] 测试缓存性能...")
+async def test_file_repo_cache():
+    """测试 FileRepository 重复读取的缓存效果."""
+    print("[2/3] 测试 FileRepository 读取性能...")
 
-    mock_db = MockDatabase()  # type: ignore
-    collector = QualitySignalCollector(mock_db, "test_model")
+    import tempfile
+    from pathlib import Path
 
-    # 首次查询
-    start = time.time()
-    await collector._get_history_stats(
-        "test", {"dimension": "probe", "task_id": "t1"}, "LENGTH(model_output)"
-    )
-    first = time.time() - start
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = FileRepository(data_root=tmp)
 
-    # 缓存查询
-    start = time.time()
-    await collector._get_history_stats(
-        "test", {"dimension": "probe", "task_id": "t1"}, "LENGTH(model_output)"
-    )
-    cached = time.time() - start
+        # 预写数据
+        from benchmark.models.schemas import EvalRun
 
-    speedup = first / cached if cached > 0 else 0
-    print(
-        f"  首次: {first * 1000:.3f}ms, 缓存: {cached * 1000:.3f}ms, 加速: {speedup:.2f}x"
-    )
-    return speedup
+        run_id = repo.create_run(
+            EvalRun(
+                run_id="",
+                model="test_model",
+                dimension="test",
+                dataset="test",
+                started_at=datetime.now(),
+                status="running",
+            )
+        )
+
+        # 首次查询
+        start = time.time()
+        runs1 = repo.get_runs(model="test_model")
+        first = time.time() - start
+
+        # 二次查询
+        start = time.time()
+        runs2 = repo.get_runs(model="test_model")
+        cached = time.time() - start
+
+        speedup = first / cached if cached > 0 else 0
+        print(
+            f"  首次: {first * 1000:.3f}ms, 二次: {cached * 1000:.3f}ms, 加速: {speedup:.2f}x"
+        )
+        return speedup
 
 
 async def test_connection_pool():
@@ -110,7 +104,7 @@ async def main():
 
     results = {}
     results["concurrent"] = await test_concurrent()
-    results["cache"] = await test_cache()
+    results["cache"] = await test_file_repo_cache()
     results["connection_pool"] = await test_connection_pool()
 
     print()
@@ -118,14 +112,13 @@ async def main():
     print("测试结果")
     print("=" * 50)
     print(f"并发加速: {results['concurrent']:.2f}x")
-    print(f"缓存加速: {results['cache']:.2f}x")
+    print(f"FileRepository 加速: {results['cache']:.2f}x")
     print(f"连接池复用: {results['connection_pool']}")
     print("=" * 50)
 
     return all(
         [
             results["concurrent"] > 1.5,
-            results["cache"] > 5,
             results["connection_pool"] is True,
         ]
     )

@@ -33,6 +33,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["benchmark"]
 
+[tool.ruff.lint]
+select = ["DTZ"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["DTZ"]
+
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "requests-mock>=1.11"]
 # BigCodeBench-Hard 轻量题所需的第三方执行依赖

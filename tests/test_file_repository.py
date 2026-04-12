@@ -30,6 +30,11 @@ def repo(tmp_root: Path) -> FileRepository:
     return FileRepository(data_root=tmp_root)
 
 
+def _run_dir(repo: FileRepository, benchmark_id: str) -> Path:
+    """构建 run 的完整路径（含 execution_id 层）。"""
+    return repo._exec_dir / benchmark_id
+
+
 class TestCreateRun:
     def test_creates_benchmark_directory(
         self, repo: FileRepository, tmp_root: Path
@@ -40,8 +45,8 @@ class TestCreateRun:
             dataset="gsm8k",
             questions=["q1", "q2", "q3"],
         )
-        assert (tmp_root / benchmark_id).exists()
-        assert (tmp_root / benchmark_id).is_dir()
+        assert (_run_dir(repo, benchmark_id)).exists()
+        assert (_run_dir(repo, benchmark_id)).is_dir()
 
     def test_creates_status_json(self, repo: FileRepository, tmp_root: Path) -> None:
         benchmark_id = repo.create_benchmark_run(
@@ -50,7 +55,7 @@ class TestCreateRun:
             dataset="gsm8k",
             questions=["q1", "q2", "q3"],
         )
-        assert (tmp_root / benchmark_id / "status.json").exists()
+        assert (_run_dir(repo, benchmark_id) / "status.json").exists()
 
     def test_creates_metadata_jsonl(self, repo: FileRepository, tmp_root: Path) -> None:
         benchmark_id = repo.create_benchmark_run(
@@ -59,7 +64,7 @@ class TestCreateRun:
             dataset="gsm8k",
             questions=["q1", "q2", "q3"],
         )
-        assert (tmp_root / benchmark_id / "metadata.jsonl").exists()
+        assert (_run_dir(repo, benchmark_id) / "metadata.jsonl").exists()
 
     def test_status_contains_correct_info(self, repo: FileRepository) -> None:
         benchmark_id = repo.create_benchmark_run(
@@ -128,7 +133,7 @@ class TestSaveQuestionResult:
             "execution_time": 1.5,
         }
         repo.save_question_result(benchmark_id, "q1", answer_data)
-        assert (tmp_root / benchmark_id / "q1" / "answer.jsonl").exists()
+        assert (_run_dir(repo, benchmark_id) / "q1" / "answer.jsonl").exists()
 
     def test_increments_answered_count(
         self, repo: FileRepository, benchmark_id: str
@@ -171,7 +176,7 @@ class TestSaveQuestionResult:
         }
         repo.save_question_result(benchmark_id, "q1", answer_data, api_metrics)
 
-        answer_path = tmp_root / benchmark_id / "q1" / "answer.jsonl"
+        answer_path = _run_dir(repo, benchmark_id) / "q1" / "answer.jsonl"
         content = answer_path.read_text(encoding="utf-8").strip()
         data = json.loads(content)
         assert data["api_metrics"] is not None
@@ -231,7 +236,7 @@ class TestSaveQuestionScoring:
             "details": {"explanation": "Correct"},
         }
         repo.save_question_scoring(answered_benchmark, "q1", scoring_data)
-        assert (tmp_root / answered_benchmark / "q1" / "scoring.jsonl").exists()
+        assert (_run_dir(repo, answered_benchmark) / "q1" / "scoring.jsonl").exists()
 
     def test_increments_scored_count(
         self, repo: FileRepository, answered_benchmark: str
@@ -266,7 +271,7 @@ class TestSaveQuestionScoring:
             answered_benchmark, "q1", scoring_data, quality_signals
         )
 
-        scoring_path = tmp_root / answered_benchmark / "q1" / "scoring.jsonl"
+        scoring_path = _run_dir(repo, answered_benchmark) / "q1" / "scoring.jsonl"
         content = scoring_path.read_text(encoding="utf-8").strip()
         data = json.loads(content)
         assert data["quality_signals"] == quality_signals
@@ -311,7 +316,7 @@ class TestSaveTiming:
             }
         ]
         repo.save_timing(benchmark_id, "q1", timing_data)
-        assert (tmp_root / benchmark_id / "q1" / "timing.jsonl").exists()
+        assert (_run_dir(repo, benchmark_id) / "q1" / "timing.jsonl").exists()
 
     def test_saves_multiple_records(
         self, repo: FileRepository, tmp_root: Path, benchmark_id: str
@@ -332,7 +337,7 @@ class TestSaveTiming:
         ]
         repo.save_timing(benchmark_id, "q1", timing_data)
 
-        timing_path = tmp_root / benchmark_id / "q1" / "timing.jsonl"
+        timing_path = _run_dir(repo, benchmark_id) / "q1" / "timing.jsonl"
         lines = timing_path.read_text(encoding="utf-8").strip().split("\n")
         assert len(lines) == 2
 
@@ -358,7 +363,7 @@ class TestSaveAnalysis:
             "summary": "All metrics within normal range",
         }
         repo.save_analysis_data(benchmark_id, analysis_data)
-        assert (tmp_root / benchmark_id / "analysis.jsonl").exists()
+        assert (_run_dir(repo, benchmark_id) / "analysis.jsonl").exists()
 
     def test_returns_report_id(self, repo: FileRepository, benchmark_id: str) -> None:
         analysis_data = {

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import matplotlib.pyplot as plt
+
+from benchmark.core.tz import now
 
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
@@ -58,7 +60,7 @@ def get_trend_data(
     Returns:
         包含 dates 和 scores 的字典.
     """
-    cutoff_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    cutoff_date = (now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
     # 使用 FileRepository 的 get_trend_data 方法
     trend_data = repo.get_trend_data(

@@ -7,9 +7,10 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+from benchmark.core.tz import now
 
 logger = logging.getLogger(__name__)
 
@@ -342,7 +343,7 @@ class TimingCollector:
                 model=model,
                 task_id=task_id,
                 timing=timing,
-                created_at=datetime.now(timezone.utc).isoformat(),
+                created_at=now().isoformat(),
             )
             self._queue.put_nowait(record)
             self._collected += 1

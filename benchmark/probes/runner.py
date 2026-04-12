@@ -5,8 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from typing import Any
-from datetime import datetime
-
+from benchmark.core.tz import now
 from benchmark.probes import BaseProbe
 from benchmark.probes.registry import ProbeRegistry
 from benchmark.core.llm_adapter import LLMEvalAdapter
@@ -60,7 +59,7 @@ class ProbeRunner:
                     final_score=0.0,
                     passed=False,
                     execution_time=timeout_seconds,
-                    created_at=datetime.now(),
+                    created_at=now(),
                     details={"error": f"Timeout after {timeout_seconds}s"},
                 )
             except Exception as e:
@@ -75,7 +74,7 @@ class ProbeRunner:
                     final_score=0.0,
                     passed=False,
                     execution_time=0.0,
-                    created_at=datetime.now(),
+                    created_at=now(),
                     details={"error": str(e)},
                 )
 
