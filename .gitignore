@@ -9,6 +9,7 @@ build/
 
 # 敏感配置（API keys）
 benchmark/configs/models.yaml
+benchmark/configs/settings.yml
 
 # 数据和日志
 benchmark/data/*.db

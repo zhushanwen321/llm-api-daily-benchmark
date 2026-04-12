@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from datetime import datetime
-
+from benchmark.core.tz import now
 from benchmark.models.schemas import TaskDefinition, EvalResult
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.probes import BaseProbe
@@ -106,7 +105,7 @@ class LogprobsProbe(BaseProbe):
                 f"Insufficient samples for {model}/{probe.task_id}: {len(responses)} samples"
             )
             return EvalResult(
-                result_id=f"{model}_{probe.task_id}_{datetime.now().timestamp()}",
+                result_id=f"{model}_{probe.task_id}_{now().timestamp()}",
                 run_id="",
                 task_id=probe.task_id,
                 task_content=probe.prompt,
@@ -117,7 +116,7 @@ class LogprobsProbe(BaseProbe):
                 final_score=0.0,
                 passed=False,
                 execution_time=sum(durations) / len(durations) if durations else 0.0,
-                created_at=datetime.now(),
+                created_at=now(),
                 details={
                     "category": probe.metadata.get("category", "unknown"),
                     "error": "Failed to collect enough samples",
@@ -132,7 +131,7 @@ class LogprobsProbe(BaseProbe):
         score = features.get("consistency_score", 0.0)
 
         return EvalResult(
-            result_id=f"{model}_{probe.task_id}_{datetime.now().timestamp()}",
+            result_id=f"{model}_{probe.task_id}_{now().timestamp()}",
             run_id="",
             task_id=probe.task_id,
             task_content=probe.prompt,
@@ -141,7 +140,7 @@ class LogprobsProbe(BaseProbe):
             final_score=score,
             passed=score >= 60.0,
             execution_time=avg_duration,
-            created_at=datetime.now(),
+            created_at=now(),
             details={
                 "category": probe.metadata.get("category", "unknown"),
                 "all_responses": responses,

@@ -1,4 +1,5 @@
 """AsyncConcurrencyLimiter 测试。"""
+
 import asyncio
 import pytest
 from benchmark.core.concurrency import AsyncConcurrencyLimiter
@@ -11,7 +12,9 @@ class TestAsyncConcurrencyLimiter:
 
     def test_get_or_create_returns_same_instance(self):
         a = AsyncConcurrencyLimiter.get_or_create("provider_a", 5)
-        b = AsyncConcurrencyLimiter.get_or_create("provider_a", 999)  # max_concurrency 被忽略
+        b = AsyncConcurrencyLimiter.get_or_create(
+            "provider_a", 999
+        )  # max_concurrency 被忽略
         assert a is b
 
     def test_get_or_create_different_providers(self):
@@ -46,7 +49,7 @@ class TestAsyncConcurrencyLimiter:
 
     def test_release_without_acquire_no_error(self):
         """release 多次不应抛异常（Semaphore 行为）。"""
-        limiter = AsyncConcurrencyLimiter(max_concurrency=1)
+        limiter = AsyncConcurrencyLimiter(provider="test", max_concurrency=1)
         limiter.release()  # 不抛异常即可
 
     def test_max_concurrency_one_serial(self):

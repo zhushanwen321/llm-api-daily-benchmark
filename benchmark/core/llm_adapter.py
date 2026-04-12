@@ -37,6 +37,8 @@ class LLMEvalAdapter:
     ) -> None:
         self.max_retries = max_retries
         self.timeout = timeout
+        self._initial_429_backoff = float(os.getenv("RATE_LIMIT_INITIAL_BACKOFF", "5"))
+        self._max_429_backoff = float(os.getenv("RATE_LIMIT_MAX_BACKOFF", "120"))
         self._model_cache: dict[str, dict[str, Any]] = {}
         self._clients: dict[str, httpx.AsyncClient] = {}
         if model:
@@ -58,6 +60,14 @@ class LLMEvalAdapter:
         if model not in self._model_cache:
             self._model_cache[model] = get_model_config(model)
         return self._model_cache[model]
+
+    def register_model_config(self, model: str, config: dict[str, Any]) -> None:
+        """注册模型配置到缓存，绕过 get_model_config() 对 models.yaml 的依赖。
+
+        config 结构必须与 _get_model_config() 返回值一致：
+        {"provider", "api_key", "api_base", "max_tokens", "max_concurrency", "thinking"}
+        """
+        self._model_cache[model] = config
 
     async def agenerate(
         self,
@@ -469,8 +479,8 @@ class LLMEvalAdapter:
             )
             if retry_after:
                 try:
-                    return min(float(retry_after), 120.0)
+                    return min(float(retry_after), self._max_429_backoff)
                 except ValueError:
                     pass
-            return min(10 * (2**attempt), 120.0)
-        return min(2 * (2**attempt), 120.0)
+            return min(self._initial_429_backoff * (2**attempt), self._max_429_backoff)
+        return min(2 * (2**attempt), 60.0)

@@ -5,8 +5,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-from datetime import datetime
-
+from benchmark.core.tz import now
 from benchmark.models.schemas import TaskDefinition, EvalResult
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.probes import BaseProbe
@@ -136,7 +135,7 @@ class FingerprintProbe(BaseProbe):
         score = self._calculate_score(features, assertions)
 
         return EvalResult(
-            result_id=f"{model}_{probe.task_id}_{datetime.now().timestamp()}",
+            result_id=f"{model}_{probe.task_id}_{now().timestamp()}",
             run_id="",
             task_id=probe.task_id,
             task_content=probe.prompt,
@@ -145,7 +144,7 @@ class FingerprintProbe(BaseProbe):
             final_score=score,
             passed=score >= 70.0,
             execution_time=response.duration,
-            created_at=datetime.now(),
+            created_at=now(),
             details={
                 "category": probe.metadata.get("category", "unknown"),
                 "features": features,

@@ -19,6 +19,8 @@ dependencies = [
     "numpy>=1.24",
     "scikit-learn>=1.3",
     "beautifulsoup4>=4.12",
+    "plotly>=5.18",
+    "pandas>=2.0",
 ]
 
 [project.scripts]
@@ -30,6 +32,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["benchmark"]
+
+[tool.ruff.lint]
+select = ["DTZ"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["DTZ"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0", "requests-mock>=1.11"]
@@ -57,4 +65,5 @@ benchmark = [
     "rsa>=4.9",
     "faker>=20.0",
     "scipy>=1.11",
+    "pandas>=2.0",
 ]

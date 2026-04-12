@@ -18,12 +18,13 @@ import math
 import statistics
 from collections import Counter
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from benchmark.analysis.models import AnomalyDetail, ChangePoint, StabilityReport
+from benchmark.core.tz import now as _now
 
 if TYPE_CHECKING:
-    from benchmark.models.database import Database
+    from benchmark.repository import FileRepository
 
 # z-score 异常阈值
 _ZSCORE_THRESHOLD = 2.0
@@ -51,8 +52,8 @@ _NUMERIC_SIGNALS = (
 class StabilityAnalyzer:
     """对质量信号做时序分析并输出稳定性报告。"""
 
-    def __init__(self, db: Database, history_days: int = 7) -> None:
-        self._db = db
+    def __init__(self, repo: FileRepository, history_days: int = 7) -> None:
+        self._repo = repo
         self._history_days = history_days
 
     # ── 公共 API ──
@@ -60,18 +61,14 @@ class StabilityAnalyzer:
     async def run(self, model: str, run_id: str, dimension: str) -> StabilityReport:
         """执行完整的稳定性分析流程。"""
         # 1. 加载当前 run 的 quality_signals
-        current_signals = await self._db.aget_quality_signals_for_run(run_id)
+        current_signals = await self._repo.aget_quality_signals_for_run(run_id)
         # 2. 加载当前 run 的 eval_results（获取 final_score）
-        current_scores = await asyncio.to_thread(
-            self._get_current_scores, run_id
-        )
+        current_scores = await self._get_current_scores(run_id)
         # 3. 加载历史基线
-        history_signals = await self._db.aget_quality_signals_history(
+        history_signals = await self._repo.aget_quality_signals_history(
             model, self._history_days
         )
-        history_scores = await asyncio.to_thread(
-            self._get_history_scores, model, dimension
-        )
+        history_scores = await self._get_history_scores(model, dimension)
 
         # 4. z-score 异常检测
         anomalies = self._detect_anomalies(current_signals, history_signals)
@@ -105,42 +102,43 @@ class StabilityAnalyzer:
             change_points=change_points,
             stat_tests=stat_tests,
             summary=summary,
-            created_at=datetime.now(),
+            created_at=_now(),
         )
 
         # 10. 保存到数据库
-        await self._db.asave_stability_report(report)
+        await self._repo.asave_stability_report(report)
 
         return report
 
     # ── 数据加载 ──
 
-    def _get_current_scores(self, run_id: str) -> list[float]:
+    async def _get_current_scores(self, run_id: str) -> list[float]:
         """获取当前 run 的 final_score 列表。"""
-        conn = self._db._get_conn()
-        cursor = conn.execute(
-            "SELECT final_score FROM eval_results WHERE run_id = ?",
-            (run_id,),
-        )
-        return [row[0] for row in cursor.fetchall() if row[0] is not None]
+        results = await self._repo.aget_results(run_id=run_id)
+        return [r["final_score"] for r in results if r.get("final_score") is not None]
 
-    def _get_history_scores(self, model: str, dimension: str) -> list[dict]:
+    async def _get_history_scores(self, model: str, dimension: str) -> list[dict]:
         """获取历史 final_score，包含 run_id、final_score、created_at。"""
-        conn = self._db._get_conn()
-        cutoff = f"-{self._history_days} days"
-        cursor = conn.execute(
-            """SELECT er.final_score, er.created_at
-               FROM eval_results er
-               JOIN eval_runs ev ON er.run_id = ev.run_id
-               WHERE ev.model = ?
-                 AND ev.dimension = ?
-                 AND ev.status = 'completed'
-                 AND er.created_at >= datetime('now', ?)
-               ORDER BY er.created_at ASC""",
-            (model, dimension, cutoff),
-        )
-        columns = [desc[0] for desc in cursor.description]
-        return [dict(zip(columns, row)) for row in cursor.fetchall()]
+        from datetime import timedelta
+
+        cutoff = _now() - timedelta(days=self._history_days)
+        results = await self._repo.aget_results(model=model, dimension=dimension)
+        history = []
+        for r in results:
+            # 仅包含已完成的 run
+            if r.get("status") != "completed":
+                continue
+            created_at = r.get("created_at")
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at)
+            if created_at and created_at >= cutoff:
+                history.append(
+                    {
+                        "final_score": r.get("final_score"),
+                        "created_at": created_at,
+                    }
+                )
+        return sorted(history, key=lambda x: x["created_at"])
 
     # ── z-score 异常检测 ──
 
@@ -220,8 +218,11 @@ class StabilityAnalyzer:
                 continue
             change_points.extend(
                 self._cusum_detect(
-                    values, signal_name, timestamps,
-                    baseline_mean=baseline_mean, baseline_std=baseline_std,
+                    values,
+                    signal_name,
+                    timestamps,
+                    baseline_mean=baseline_mean,
+                    baseline_std=baseline_std,
                 )
             )
 
@@ -232,15 +233,22 @@ class StabilityAnalyzer:
         if len(score_values) < 5:
             pass
         else:
-            hist_score_vals = [h["final_score"] for h in history_scores if h.get("final_score") is not None]
+            hist_score_vals = [
+                h["final_score"]
+                for h in history_scores
+                if h.get("final_score") is not None
+            ]
             if len(hist_score_vals) >= 2:
                 score_mean = statistics.mean(hist_score_vals)
                 score_std = statistics.pstdev(hist_score_vals)
                 if score_std > 0:
                     change_points.extend(
                         self._cusum_detect(
-                            score_values, "score", score_timestamps,
-                            baseline_mean=score_mean, baseline_std=score_std,
+                            score_values,
+                            "score",
+                            score_timestamps,
+                            baseline_mean=score_mean,
+                            baseline_std=score_std,
                         )
                     )
 
@@ -295,10 +303,10 @@ class StabilityAnalyzer:
 
         # 追加当前 run 的分数
         if current_scores:
-            now = datetime.now()
+            now_ts = _now()
             for s in current_scores:
                 values.append(float(s))
-                timestamps.append(now)
+                timestamps.append(now_ts)
 
         return values, timestamps
 
@@ -478,7 +486,7 @@ class StabilityAnalyzer:
         anomalies: list[AnomalyDetail],
         change_points: list[ChangePoint],
         stat_tests: list[dict],
-    ) -> str:
+    ) -> Literal["stable", "degraded", "suspicious"]:
         """判定 overall_status。"""
         # degraded 条件
         score_significant = any(
@@ -540,7 +548,5 @@ class StabilityAnalyzer:
             parts.append(f"Change points: {', '.join(cps)}")
         sig_tests = [t for t in stat_tests if t.get("significant")]
         if sig_tests:
-            parts.append(
-                f"Significant: {', '.join(t['signal'] for t in sig_tests)}"
-            )
+            parts.append(f"Significant: {', '.join(t['signal'] for t in sig_tests)}")
         return "; ".join(parts)

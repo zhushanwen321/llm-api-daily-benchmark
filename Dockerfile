@@ -41,9 +41,6 @@ RUN pip uninstall -y pip \
     find /usr/local/lib/python3.13 -type f -name '*.pyi' -delete 2>/dev/null; \
     true
 
-# 创建数据目录
-RUN mkdir -p /app/data
-
 # 暴露 Streamlit 端口
 EXPOSE 8501
 

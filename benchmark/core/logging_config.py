@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 import sys
-from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+
+from benchmark.core.tz import now
 
 
 def setup_logging(debug: bool = False, log_dir: str | Path = "logs") -> None:
@@ -37,7 +38,7 @@ def setup_logging(debug: bool = False, log_dir: str | Path = "logs") -> None:
     log_path = Path(log_dir)
     log_path.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = now().strftime("%Y%m%d_%H%M%S")
     log_file = log_path / f"benchmark_{timestamp}.log"
 
     file_handler = RotatingFileHandler(

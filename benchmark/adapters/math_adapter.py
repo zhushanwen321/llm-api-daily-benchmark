@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import random
+import re
 from typing import List
 
 from benchmark.adapters.hf_loader import load_hf_dataset
@@ -11,6 +12,30 @@ from benchmark.adapters.hf_loader import load_hf_dataset
 from benchmark.adapters.base import DatasetAdapter
 from benchmark.core.prompt_builder import build_structured_prompt
 from benchmark.models.schemas import TaskDefinition
+
+
+def _extract_answer_from_solution(solution: str) -> str:
+    pattern = re.compile(r"\\boxed\s*\{")
+    match = pattern.search(solution)
+    if not match:
+        return solution
+
+    start = match.end()
+    depth = 1
+    pos = start
+    while pos < len(solution) and depth > 0:
+        if solution[pos] == "{":
+            depth += 1
+        elif solution[pos] == "}":
+            depth -= 1
+        pos += 1
+
+    if depth == 0:
+        result = solution[start : pos - 1].strip()
+        if result.startswith("\\boxed"):
+            return _extract_answer_from_solution(result)
+        return result
+    return solution[start:].strip()
 
 
 class MATHAdapter(DatasetAdapter):
@@ -83,7 +108,7 @@ class MATHAdapter(DatasetAdapter):
                 prompt=build_structured_prompt(
                     item["problem"], "reasoning", dataset="math"
                 ),
-                expected_output=item["solution"],
+                expected_output=_extract_answer_from_solution(item.get("solution", "")),
                 metadata={
                     "level": level_int,
                     "subject": item.get("type", "unknown"),

@@ -7,6 +7,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
+from benchmark.core.tz import now
+
 
 @dataclass
 class BaselineConfig:
@@ -189,7 +191,7 @@ class AdaptiveBaselineManager:
                 min_acceptable=0.0,
                 max_acceptable=100.0,
                 sample_count=0,
-                last_updated=datetime.now(),
+                last_updated=now(),
                 confidence=0.0,
             )
         else:
@@ -212,7 +214,7 @@ class AdaptiveBaselineManager:
                 min_acceptable=min_acceptable,
                 max_acceptable=max_acceptable,
                 sample_count=len(values),
-                last_updated=datetime.now(),
+                last_updated=now(),
                 trend=trend,
                 confidence=confidence,
             )
@@ -230,7 +232,7 @@ class AdaptiveBaselineManager:
 
         使用指数移动平均法平滑更新基线.
         """
-        ts = timestamp or datetime.now()
+        ts = timestamp or now()
 
         if metric_name not in self._baselines:
             # 首次创建基线
@@ -289,7 +291,7 @@ class AdaptiveBaselineManager:
             return None
 
         baseline = self._baselines[metric_name]
-        ts = timestamp or datetime.now()
+        ts = timestamp or now()
 
         # 检查是否在可接受范围内
         if baseline.min_acceptable <= observed_value <= baseline.max_acceptable:
@@ -356,9 +358,7 @@ class AdaptiveBaselineManager:
         low_confidence = sum(1 for b in self._baselines.values() if b.confidence < 0.5)
 
         recent_anomalies = [
-            a
-            for a in self._anomaly_history
-            if a.timestamp > datetime.now() - timedelta(days=7)
+            a for a in self._anomaly_history if a.timestamp > now() - timedelta(days=7)
         ]
 
         severity_counts = {"low": 0, "medium": 0, "high": 0}
@@ -397,12 +397,10 @@ class AdaptiveBaselineManager:
         """导入基线配置."""
         for name, b_data in data.items():
             try:
-                last_updated_str = b_data.get(
-                    "last_updated", datetime.now().isoformat()
-                )
+                last_updated_str = b_data.get("last_updated", now().isoformat())
                 last_updated = datetime.fromisoformat(last_updated_str)
             except (ValueError, TypeError):
-                last_updated = datetime.now()
+                last_updated = now()
 
             self._baselines[name] = ScoreBaseline(
                 metric_name=name,

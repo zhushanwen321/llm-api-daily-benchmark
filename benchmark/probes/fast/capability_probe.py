@@ -66,7 +66,7 @@ class CapabilityProbe:
         passed = expected.lower() in answer.lower()
         score = 100.0 if passed else 0.0
 
-        from datetime import datetime
+        from benchmark.core.tz import now
 
         return EvalResult(
             result_id=f"{model}_{probe.task_id}_{time.time()}",
@@ -78,7 +78,7 @@ class CapabilityProbe:
             final_score=score,
             passed=passed,
             execution_time=response.duration,
-            created_at=datetime.now(),
+            created_at=now(),
         )
 
     def extract_features(self, result: EvalResult) -> dict[str, Any]:

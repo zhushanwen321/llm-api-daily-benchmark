@@ -12,13 +12,9 @@ import re
 from dataclasses import dataclass
 
 # 匹配 ```json ... ``` 代码块
-_JSON_BLOCK_RE = re.compile(
-    r"```json\s*\n?(.*?)\n?\s*```", re.DOTALL
-)
+_JSON_BLOCK_RE = re.compile(r"```json\s*\n?(.*?)\n?\s*```", re.DOTALL)
 # 匹配 ```python ... ``` 代码块（backend-dev fallback）
-_PYTHON_BLOCK_RE = re.compile(
-    r"```(?:python)?\s*\n?(.*?)\n?\s*```", re.DOTALL
-)
+_PYTHON_BLOCK_RE = re.compile(r"```(?:python)?\s*\n?(.*?)\n?\s*```", re.DOTALL)
 # 匹配 \boxed{...}，支持嵌套花括号
 _BOXED_RE = re.compile(r"\\boxed\s*\{")
 
@@ -95,9 +91,9 @@ def extract_boxed(text: str) -> str:
     depth = 1
     pos = start
     while pos < len(text) and depth > 0:
-        if text[pos] == '{':
+        if text[pos] == "{":
             depth += 1
-        elif text[pos] == '}':
+        elif text[pos] == "}":
             depth -= 1
         pos += 1
 
@@ -123,6 +119,15 @@ def _extract_answer_from_json(data: dict, dimension: str) -> str:
     elif dimension in ("backend-dev", "frontend-dev"):
         # 优先取 code 字段
         return str(data.get("code", ""))
+    elif dimension == "probe":
+        if "answer" in data:
+            return str(data["answer"])
+        for key in ["result", "data", "status", "value", "items"]:
+            if key in data:
+                value = data[key]
+                if isinstance(value, list):
+                    return str(value)
+                return str(value)
     return ""
 
 

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 import os
+from benchmark.core.tz import now
 from typing import Any
-from datetime import datetime
 
 import yaml
 
@@ -89,7 +89,7 @@ class SafetyProbe(BaseProbe):
         score, passed = self._evaluate_response(response.content, assertions)
 
         return EvalResult(
-            result_id=f"{model}_{probe.task_id}_{datetime.now().timestamp()}",
+            result_id=f"{model}_{probe.task_id}_{now().timestamp()}",
             run_id="",
             task_id=probe.task_id,
             task_content=probe.prompt,
@@ -98,7 +98,7 @@ class SafetyProbe(BaseProbe):
             final_score=score,
             passed=passed,
             execution_time=response.duration,
-            created_at=datetime.now(),
+            created_at=now(),
             details={
                 "category": probe.metadata.get("category", "unknown"),
                 "severity": probe.metadata.get("severity", "medium"),

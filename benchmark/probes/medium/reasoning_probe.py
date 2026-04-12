@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import datetime
+from benchmark.core.tz import now
 from typing import Any
 
 import yaml
@@ -91,7 +91,7 @@ class ReasoningProbe(BaseProbe):
         )
 
         return EvalResult(
-            result_id=f"{model}_{probe.task_id}_{datetime.now().timestamp()}",
+            result_id=f"{model}_{probe.task_id}_{now().timestamp()}",
             run_id="",
             task_id=probe.task_id,
             task_content=probe.prompt,
@@ -100,7 +100,7 @@ class ReasoningProbe(BaseProbe):
             final_score=score,
             passed=passed,
             execution_time=response.duration,
-            created_at=datetime.now(),
+            created_at=now(),
             details={
                 "category": probe.metadata.get("category", "unknown"),
                 "difficulty": probe.metadata.get("difficulty", "medium"),
