@@ -18,7 +18,7 @@ import math
 import statistics
 from collections import Counter
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from benchmark.analysis.models import AnomalyDetail, ChangePoint, StabilityReport
 
@@ -62,14 +62,12 @@ class StabilityAnalyzer:
         # 1. 加载当前 run 的 quality_signals
         current_signals = await self._repo.aget_quality_signals_for_run(run_id)
         # 2. 加载当前 run 的 eval_results（获取 final_score）
-        current_scores = await asyncio.to_thread(self._get_current_scores, run_id)
+        current_scores = await self._get_current_scores(run_id)
         # 3. 加载历史基线
         history_signals = await self._repo.aget_quality_signals_history(
             model, self._history_days
         )
-        history_scores = await asyncio.to_thread(
-            self._get_history_scores, model, dimension
-        )
+        history_scores = await self._get_history_scores(model, dimension)
 
         # 4. z-score 异常检测
         anomalies = self._detect_anomalies(current_signals, history_signals)
@@ -113,23 +111,22 @@ class StabilityAnalyzer:
 
     # ── 数据加载 ──
 
-    def _get_current_scores(self, run_id: str) -> list[float]:
+    async def _get_current_scores(self, run_id: str) -> list[float]:
         """获取当前 run 的 final_score 列表。"""
-        results = asyncio.run(self._repo.aget_results(run_id=run_id))
-        return [
-            r.get("final_score", 0.0)
-            for r in results
-            if r.get("final_score") is not None
-        ]
+        results = await self._repo.aget_results(run_id=run_id)
+        return [r["final_score"] for r in results if r.get("final_score") is not None]
 
-    def _get_history_scores(self, model: str, dimension: str) -> list[dict]:
+    async def _get_history_scores(self, model: str, dimension: str) -> list[dict]:
         """获取历史 final_score，包含 run_id、final_score、created_at。"""
         from datetime import datetime, timedelta
 
         cutoff = datetime.now() - timedelta(days=self._history_days)
-        results = asyncio.run(self._repo.aget_results(model=model, dimension=dimension))
+        results = await self._repo.aget_results(model=model, dimension=dimension)
         history = []
         for r in results:
+            # 仅包含已完成的 run
+            if r.get("status") != "completed":
+                continue
             created_at = r.get("created_at")
             if isinstance(created_at, str):
                 created_at = datetime.fromisoformat(created_at)
@@ -488,7 +485,7 @@ class StabilityAnalyzer:
         anomalies: list[AnomalyDetail],
         change_points: list[ChangePoint],
         stat_tests: list[dict],
-    ) -> str:
+    ) -> Literal["stable", "degraded", "suspicious"]:
         """判定 overall_status。"""
         # degraded 条件
         score_significant = any(

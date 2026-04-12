@@ -3,7 +3,7 @@
 import pytest
 import asyncio
 from unittest.mock import patch, AsyncMock
-from benchmark.cli import _run_provider_group
+from benchmark.cli.runner import run_provider_group as _run_provider_group
 from benchmark.repository import FileRepository
 
 

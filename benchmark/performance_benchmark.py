@@ -67,8 +67,8 @@ class PerformanceBenchmark:
     async def benchmark_cache_performance(self) -> None:
         print("[2/4] 测试缓存性能...")
 
-        mock_db = MockDatabase()  # type: ignore
-        collector = QualitySignalCollector(mock_db, self.model)
+        mock_repo = MockRepo()
+        collector = QualitySignalCollector(mock_repo, self.model)  # type: ignore[arg-type]
 
         start = time.time()
         await collector._get_history_stats(
@@ -235,24 +235,14 @@ class PerformanceBenchmark:
         return "\n".join(lines)
 
 
-class MockDatabase:
-    def __init__(self):
-        self._conn = MockConnection()
+class MockRepo:
+    """Minimal mock for QualitySignalCollector benchmark."""
 
-    def _get_conn(self):
-        return self._conn
+    def get_runs(self, **kwargs):
+        return [{"created_at": "2026-01-01T00:00:00", "run_id": "run-1"}]
 
-
-class MockConnection:
-    def execute(self, sql: str, params: list) -> "MockCursor":
-        return MockCursor()
-
-
-class MockCursor:
-    description = [["val"]]
-
-    def fetchall(self):
-        return [[float(i * 10)] for i in range(10)]
+    async def aget_results(self, **kwargs):
+        return [{"task_id": "task_1", "model_output": "x" * 100}]
 
 
 async def main():

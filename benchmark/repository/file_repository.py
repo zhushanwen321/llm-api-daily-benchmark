@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
@@ -14,7 +15,7 @@ from typing import Any, Optional
 
 import pandas as pd
 
-from benchmark.analysis.models import ClusterReport
+from benchmark.analysis.models import ClusterReport, StabilityReport
 from benchmark.models.schemas import ApiCallMetrics, EvalResult, EvalRun
 from benchmark.repository.handlers import (
     AnalysisHandler,
@@ -60,6 +61,9 @@ class FileRepository(Repository):
 
         # 初始化 IndexBuilder
         self._index_builder = IndexBuilder(self._root)
+
+        # scoring task ID → (benchmark_id, question_id) 缓存
+        self._task_location_cache: dict[int, tuple[str, str]] = {}
 
     # ── Run 生命周期 ──
 
@@ -120,7 +124,8 @@ class FileRepository(Repository):
         Returns:
             result_id: 结果记录 ID
         """
-        # 构造 EvalResult
+        now = datetime.now(timezone.utc)
+
         result = EvalResult(
             result_id=answer_data.get("result_id", self._generate_id()),
             run_id=benchmark_id,
@@ -136,10 +141,9 @@ class FileRepository(Repository):
             passed=answer_data.get("passed", False),
             details=answer_data.get("details", {}),
             execution_time=answer_data.get("execution_time", 0.0),
-            created_at=datetime.now(timezone.utc),
+            created_at=now,
         )
 
-        # 构造 ApiCallMetrics（如果提供）
         metrics = None
         if api_metrics:
             metrics = ApiCallMetrics(
@@ -152,7 +156,7 @@ class FileRepository(Repository):
                 tokens_per_second=api_metrics.get("tokens_per_second", 0.0),
                 ttft=api_metrics.get("ttft", 0.0),
                 ttft_content=api_metrics.get("ttft_content", 0.0),
-                created_at=datetime.now(timezone.utc),
+                created_at=now,
             )
 
         # 保存答案
@@ -285,13 +289,8 @@ class FileRepository(Repository):
         """
         self._index_builder.build()
 
-        # 返回索引摘要
         index_path = self._root / "index.jsonl"
-        row_count = 0
-        if index_path.exists():
-            for line in index_path.read_text(encoding="utf-8").splitlines():
-                if line.strip():
-                    row_count += 1
+        row_count = len(self._read_jsonl(index_path))
 
         return {
             "index_file": str(index_path),
@@ -303,21 +302,19 @@ class FileRepository(Repository):
 
     def create_run(self, run: EvalRun) -> str:
         """创建评测运行记录（Repository 接口实现）。"""
-        # 构造 questions 列表（从 task_id 推断，这里假设有一个 task）
-        questions = ["task_1"]  # 默认至少有一个任务
-
         return self.create_benchmark_run(
             model=run.model,
             dimension=run.dimension,
             dataset=run.dataset,
-            questions=questions,
+            questions=[],  # total_questions=0，需显式 finish_run 标记完成
         )
 
     def finish_run(self, run_id: str, status: str = "completed") -> None:
         """标记运行记录为已完成或失败。"""
         if status == "failed":
             self._status.set_failed(run_id)
-        # completed 状态由 save_question_scoring 在 scored == total 时自动设置
+        else:
+            self._status.set_completed(run_id)
 
     def get_active_runs(self) -> list[EvalRun]:
         """获取所有 status 为 running 的运行记录（Repository 接口实现）。"""
@@ -373,17 +370,30 @@ class FileRepository(Repository):
         if status in ("completed", "failed"):
             self.finish_run(run_id, status)
 
-    def save_metrics(self, metrics: ApiCallMetrics) -> str:
+    def save_metrics(
+        self,
+        metrics: ApiCallMetrics,
+        run_id: str = "",
+        task_id: str = "",
+    ) -> str:
         """保存 API 调用指标。
 
         注意：metrics 通常在 save_answer 时一并保存，
         此方法用于单独保存 metrics 的场景。
+
+        Args:
+            metrics: API 调用指标
+            run_id: 评测运行 ID（FileRepository 需要此参数确定写入路径）
+            task_id: 问题 ID（FileRepository 需要此参数确定写入路径）
         """
-        # 构造一个空的 result 来保存 metrics
+        if not run_id or not task_id:
+            # 无法确定写入路径，跳过——metrics 可能已通过 save_answer 一并保存
+            return metrics.result_id
+
         result = EvalResult(
             result_id=metrics.result_id,
-            run_id="",  # 需要通过其他方式获取
-            task_id="",
+            run_id=run_id,
+            task_id=task_id,
             task_content="",
             model_output="",
             model_answer="",
@@ -444,6 +454,8 @@ class FileRepository(Repository):
                         "final_score": answer_data.get("final_score"),
                         "passed": answer_data.get("passed"),
                         "execution_time": answer_data.get("execution_time"),
+                        "created_at": status.get("created_at"),
+                        "status": status.get("status"),
                     }
                     results.append(result)
 
@@ -504,31 +516,19 @@ class FileRepository(Repository):
         """获取运行列表（使用 IndexBuilder）。"""
         self._index_builder.build()
 
-        rows: list[dict[str, Any]] = []
         index_path = self._root / "index.jsonl"
+        all_rows = self._read_jsonl(index_path)
 
-        if not index_path.exists():
-            return rows
-
-        for line in index_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
+        rows: list[dict[str, Any]] = []
+        for row in all_rows:
+            if model and row.get("model") != model:
+                continue
+            if dimension and row.get("dimension") != dimension:
+                continue
+            if status_filter and row.get("status") != status_filter:
                 continue
 
-            try:
-                row = json.loads(line)
-
-                # 应用过滤条件
-                if model and row.get("model") != model:
-                    continue
-                if dimension and row.get("dimension") != dimension:
-                    continue
-                if status_filter and row.get("status") != status_filter:
-                    continue
-
-                rows.append(row)
-            except Exception:
-                continue
+            rows.append(row)
 
         return rows
 
@@ -576,8 +576,7 @@ class FileRepository(Repository):
 
     def save_analysis(self, report: object) -> str:
         """保存分析报告（Repository 接口实现）。"""
-        if hasattr(report, "model") and hasattr(report, "run_id"):
-            # 假设是 StabilityReport 类型
+        if isinstance(report, StabilityReport):
             analysis_data = {
                 "report_type": "stability",
                 "model": getattr(report, "model", ""),
@@ -660,29 +659,18 @@ class FileRepository(Repository):
                 continue
 
             scoring_path = question_dir / "scoring.jsonl"
-            if not scoring_path.exists():
-                continue
-
-            for line in scoring_path.read_text(encoding="utf-8").splitlines():
-                line = line.strip()
-                if not line:
-                    continue
-
-                try:
-                    record = __import__("json").loads(line)
-                    quality_signals = record.get("quality_signals", {})
-                    if quality_signals:
-                        signals.append(
-                            {
-                                "benchmark_id": run_id,
-                                "question_id": question_dir.name,
-                                "quality_signals": quality_signals,
-                                "final_score": record.get("final_score"),
-                                "scoring_status": record.get("scoring_status"),
-                            }
-                        )
-                except Exception:
-                    continue
+            for record in self._read_jsonl(scoring_path):
+                quality_signals = record.get("quality_signals", {})
+                if quality_signals:
+                    signals.append(
+                        {
+                            "benchmark_id": run_id,
+                            "question_id": question_dir.name,
+                            "quality_signals": quality_signals,
+                            "final_score": record.get("final_score"),
+                            "scoring_status": record.get("scoring_status"),
+                        }
+                    )
 
         return signals
 
@@ -740,22 +728,13 @@ class FileRepository(Repository):
     def get_cluster_reports(self, model: Optional[str] = None) -> list[dict[str, Any]]:
         """查询聚类报告。"""
         cluster_path = self._root / "cluster_reports.jsonl"
-        if not cluster_path.exists():
-            return []
+        all_records = self._read_jsonl(cluster_path)
 
         reports: list[dict[str, Any]] = []
-        for line in cluster_path.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if not line:
+        for record in all_records:
+            if model and record.get("model") != model:
                 continue
-
-            try:
-                record = __import__("json").loads(line)
-                if model and record.get("model") != model:
-                    continue
-                reports.append(record)
-            except Exception:
-                continue
+            reports.append(record)
 
         return reports
 
@@ -898,8 +877,9 @@ class FileRepository(Repository):
 
         self._scoring.save_scoring(run_id, task_id, scoring_data)
 
-        # 返回一个基于 run_id 和 task_id 的哈希 ID（用于后续查找）
-        return hash(f"{run_id}:{task_id}") % 2147483647
+        task_hash = self._generate_scoring_task_id(run_id, task_id)
+        self._task_location_cache[task_hash] = (run_id, task_id)
+        return task_hash
 
     def fetch_pending_scoring_tasks(self, limit: int = 10) -> list[dict[str, Any]]:
         """拉取待处理任务并原子锁定。"""
@@ -916,7 +896,14 @@ class FileRepository(Repository):
                 if len(tasks) >= limit:
                     break
 
-                task["task_id_hash"] = hash(task["task_id"]) % 2147483647
+                task_key = f"{benchmark_id}:{task['task_id']}"
+                task["task_id_hash"] = self._generate_scoring_task_id(
+                    benchmark_id, task["task_id"]
+                )
+                self._task_location_cache[task["task_id_hash"]] = (
+                    benchmark_id,
+                    task["question_id"],
+                )
                 tasks.append(task)
 
             if len(tasks) >= limit:
@@ -926,7 +913,20 @@ class FileRepository(Repository):
 
     def complete_scoring_task(self, task_id: int, score_result: dict[str, Any]) -> None:
         """标记任务完成，保存评分结果。"""
-        # 找到对应的任务并更新
+        cached = self._task_location_cache.get(task_id)
+        if cached:
+            benchmark_id, question_id = cached
+            scoring_data = dict(score_result)
+            scoring_data["task_id"] = question_id
+            self.save_question_scoring(
+                benchmark_id=benchmark_id,
+                question_id=question_id,
+                scoring_data=scoring_data,
+                quality_signals=score_result.get("quality_signals", {}),
+            )
+            self._task_location_cache.pop(task_id, None)
+            return
+
         for entry in sorted(self._root.iterdir()):
             if not entry.is_dir():
                 continue
@@ -935,10 +935,10 @@ class FileRepository(Repository):
             pending = self._scoring.find_pending(benchmark_id)
 
             for task in pending:
-                # 使用与 create_scoring_task 相同的哈希计算方式
-                expected_hash = hash(f"{benchmark_id}:{task['task_id']}") % 2147483647
+                expected_hash = self._generate_scoring_task_id(
+                    benchmark_id, task["task_id"]
+                )
                 if expected_hash == task_id:
-                    # 更新评分数据（确保包含 task_id）
                     scoring_data = dict(score_result)
                     scoring_data["task_id"] = task["task_id"]
                     self.save_question_scoring(
@@ -947,11 +947,30 @@ class FileRepository(Repository):
                         scoring_data=scoring_data,
                         quality_signals=score_result.get("quality_signals", {}),
                     )
+                    self._task_location_cache[expected_hash] = (
+                        benchmark_id,
+                        task["question_id"],
+                    )
                     return
 
     def fail_scoring_task(self, task_id: int, error_message: str) -> None:
         """标记任务失败。"""
-        # 类似 complete_scoring_task，但标记为 failed
+        cached = self._task_location_cache.get(task_id)
+        if cached:
+            benchmark_id, question_id = cached
+            scoring_data = {
+                "task_id": question_id,
+                "functional_score": 0.0,
+                "quality_score": 0.0,
+                "final_score": 0.0,
+                "passed": False,
+                "details": {"error": error_message},
+                "scoring_status": "failed",
+            }
+            self._scoring.save_scoring(benchmark_id, question_id, scoring_data)
+            self._task_location_cache.pop(task_id, None)
+            return
+
         for entry in sorted(self._root.iterdir()):
             if not entry.is_dir():
                 continue
@@ -960,7 +979,9 @@ class FileRepository(Repository):
             pending = self._scoring.find_pending(benchmark_id)
 
             for task in pending:
-                expected_hash = hash(f"{benchmark_id}:{task['task_id']}") % 2147483647
+                expected_hash = self._generate_scoring_task_id(
+                    benchmark_id, task["task_id"]
+                )
                 if expected_hash == task_id:
                     scoring_data = {
                         "task_id": task["task_id"],
@@ -978,7 +999,12 @@ class FileRepository(Repository):
 
     def retry_scoring_task(self, task_id: int) -> None:
         """将任务重置为 pending 以便重试。"""
-        # 遍历所有 scoring 文件找对应的 task
+        cached = self._task_location_cache.get(task_id)
+        if cached:
+            benchmark_id, question_id = cached
+            self._scoring.mark_pending(benchmark_id, question_id)
+            return
+
         for entry in sorted(self._root.iterdir()):
             if not entry.is_dir():
                 continue
@@ -993,24 +1019,18 @@ class FileRepository(Repository):
                 if not scoring_path.exists():
                     continue
 
-                # 检查是否是目标 task
-                for line in scoring_path.read_text(encoding="utf-8").splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    try:
-                        record = __import__("json").loads(line)
-                        task_id_from_record = record.get("task_id", "")
-                        expected_hash = (
-                            hash(f"{benchmark_id}:{task_id_from_record}") % 2147483647
+                for record in self._read_jsonl(scoring_path):
+                    task_id_from_record = record.get("task_id", "")
+                    expected_hash = self._generate_scoring_task_id(
+                        benchmark_id, task_id_from_record
+                    )
+                    if expected_hash == task_id:
+                        self._scoring.mark_pending(benchmark_id, question_dir.name)
+                        self._task_location_cache[expected_hash] = (
+                            benchmark_id,
+                            question_dir.name,
                         )
-                        if expected_hash == task_id:
-                            # 标记为 pending
-                            self._scoring.mark_pending(benchmark_id, question_dir.name)
-                            return
-                    except Exception:
-                        continue
+                        return
 
     def get_pending_task_count(self) -> int:
         """获取待处理任务数量。"""
@@ -1028,6 +1048,19 @@ class FileRepository(Repository):
     # ── 辅助方法 ──
 
     @staticmethod
+    def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+        """流式读取 JSONL 文件，返回解析后的记录列表。"""
+        if not path.exists():
+            return []
+        records: list[dict[str, Any]] = []
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                if stripped:
+                    records.append(json.loads(stripped))
+        return records
+
+    @staticmethod
     def _generate_benchmark_id(model: str, dimension: str) -> str:
         """生成 benchmark_id。"""
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -1039,6 +1072,12 @@ class FileRepository(Repository):
     def _generate_id() -> str:
         """生成唯一 ID。"""
         return uuid.uuid4().hex[:16]
+
+    @staticmethod
+    def _generate_scoring_task_id(run_id: str, task_id: str) -> int:
+        """基于 run_id + task_id 生成确定性 task hash（跨进程稳定）。"""
+        digest = hashlib.sha256(f"{run_id}:{task_id}".encode()).hexdigest()
+        return int(digest[:8], 16)
 
     # ── 日志方法 ──
 
@@ -1059,8 +1098,13 @@ class FileRepository(Repository):
     async def asave_result(self, result: EvalResult) -> str:
         return await asyncio.to_thread(self.save_answer, result)
 
-    async def asave_metrics(self, metrics: ApiCallMetrics) -> str:
-        return await asyncio.to_thread(self.save_metrics, metrics)
+    async def asave_metrics(
+        self,
+        metrics: ApiCallMetrics,
+        run_id: str = "",
+        task_id: str = "",
+    ) -> str:
+        return await asyncio.to_thread(self.save_metrics, metrics, run_id, task_id)
 
     async def aget_quality_signals_for_run(self, run_id: str) -> list[dict[str, Any]]:
         return await asyncio.to_thread(self.get_quality_signals_for_run, run_id)

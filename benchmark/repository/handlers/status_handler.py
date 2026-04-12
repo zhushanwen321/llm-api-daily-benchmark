@@ -48,7 +48,7 @@ class StatusHandler:
         data = self.get(benchmark_id)
         data["answered"] += 1
         data["updated_at"] = self._now()
-        if data["answered"] >= data["total_questions"]:
+        if data["total_questions"] > 0 and data["answered"] >= data["total_questions"]:
             data["status"] = "scoring"
         self._write(benchmark_id, data)
 
@@ -56,7 +56,7 @@ class StatusHandler:
         data = self.get(benchmark_id)
         data["scored"] += 1
         data["updated_at"] = self._now()
-        if data["scored"] >= data["total_questions"]:
+        if data["total_questions"] > 0 and data["scored"] >= data["total_questions"]:
             data["status"] = "completed"
         self._write(benchmark_id, data)
 
@@ -75,6 +75,12 @@ class StatusHandler:
     def set_failed(self, benchmark_id: str) -> None:
         data = self.get(benchmark_id)
         data["status"] = "failed"
+        data["updated_at"] = self._now()
+        self._write(benchmark_id, data)
+
+    def set_completed(self, benchmark_id: str) -> None:
+        data = self.get(benchmark_id)
+        data["status"] = "completed"
         data["updated_at"] = self._now()
         self._write(benchmark_id, data)
 

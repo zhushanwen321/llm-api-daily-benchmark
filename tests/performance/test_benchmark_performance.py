@@ -9,7 +9,7 @@ import pytest
 
 from benchmark.analysis.quality_signals import QualitySignalCollector
 from benchmark.core.llm_adapter import LLMEvalAdapter
-from benchmark.cli import _run_provider_group
+from benchmark.cli.runner import run_provider_group as _run_provider_group
 from benchmark.repository import FileRepository
 
 
@@ -167,7 +167,9 @@ class TestConnectionPool:
 
     def test_provider_specific_limits(self):
         """Test different providers have appropriate limits."""
-        from benchmark.cli import _get_provider_concurrency
+        from benchmark.cli.utils import (
+            get_provider_concurrency as _get_provider_concurrency,
+        )
 
         # 未知 provider 使用默认值
         default_limit = _get_provider_concurrency("unknown/model")

@@ -131,62 +131,6 @@ class TestRepositoryInterfaceDefinition:
         assert hints.get("result_id") is str
         assert hints.get("return") is not None
 
-    def test_methods_count_covers_database(self):
-        from benchmark.models.database import Database
-
-        db_public_methods = {
-            name
-            for name, val in inspect.getmembers(Database, predicate=inspect.isfunction)
-            if not name.startswith("_")
-        }
-        repo_methods = EXPECTED_ABSTRACT_METHODS | EXPECTED_PATH_HELPERS
-        uncovered = (
-            db_public_methods
-            - repo_methods
-            - {
-                "close",
-                "get_timing_phases",
-                "get_timing_summaries",
-                "create_scoring_task",
-                "fetch_pending_scoring_tasks",
-                "complete_scoring_task",
-                "fail_scoring_task",
-                "retry_scoring_task",
-                "get_pending_task_count",
-            }
-        )
-        uncovered -= {
-            "asave_result",
-            "asave_metrics",
-            "asave_quality_signals",
-            "asave_stability_report",
-            "asave_cluster_report",
-            "aget_quality_signals_for_run",
-            "aget_quality_signals_history",
-            "aget_stability_reports",
-            "aget_cluster_reports",
-            "acreate_scoring_task",
-            "afetch_pending_scoring_tasks",
-            "acomplete_scoring_task",
-            "afail_scoring_task",
-            "aretry_scoring_task",
-            "aget_pending_task_count",
-        }
-        uncovered -= {
-            "save_result",
-            "get_timing_phases",
-            "get_timing_summaries",
-            "create_scoring_task",
-            "fetch_pending_scoring_tasks",
-            "complete_scoring_task",
-            "fail_scoring_task",
-            "retry_scoring_task",
-            "get_pending_task_count",
-        }
-        assert len(repo_methods) >= len(db_public_methods), (
-            f"Repository 方法数({len(repo_methods)}) < Database 公开方法数({len(db_public_methods)})"
-        )
-
 
 class TestRepositoryPathHelpers:
     def test_data_dir_constant(self):

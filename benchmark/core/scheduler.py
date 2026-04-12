@@ -22,16 +22,10 @@ class BenchmarkScheduler:
         self.enabled = os.getenv("SCHEDULER_ENABLED", "false").lower() == "true"
         self.cron = os.getenv("SCHEDULER_CRON", "0 2 * * *")
         self.models = [
-            m.strip()
-            for m in os.getenv("SCHEDULER_MODELS", "").split(",")
-            if m.strip()
+            m.strip() for m in os.getenv("SCHEDULER_MODELS", "").split(",") if m.strip()
         ]
         dimensions_raw = os.getenv("SCHEDULER_DIMENSIONS", "all")
-        self.dimensions = [
-            d.strip()
-            for d in dimensions_raw.split(",")
-            if d.strip()
-        ]
+        self.dimensions = [d.strip() for d in dimensions_raw.split(",") if d.strip()]
         self.samples = int(os.getenv("SCHEDULER_SAMPLES", "15"))
         self._scheduler: BackgroundScheduler | None = None
 
@@ -67,7 +61,10 @@ class BenchmarkScheduler:
         self._scheduler.start()
         logger.info(
             "调度器已启动: cron='%s', models=%s, dimensions=%s, samples=%s",
-            self.cron, self.models, self.dimensions, self.samples,
+            self.cron,
+            self.models,
+            self.dimensions,
+            self.samples,
         )
 
     def stop(self) -> None:
@@ -78,16 +75,21 @@ class BenchmarkScheduler:
 
     def _run_scheduled_evaluation(self) -> None:
         """调度触发时执行的全量评测。"""
-        logger.info("定时评测触发: models=%s, dimensions=%s", self.models, self.dimensions)
+        logger.info(
+            "定时评测触发: models=%s, dimensions=%s", self.models, self.dimensions
+        )
         try:
-            from benchmark.cli import _run_multi_evaluation
+            from benchmark.cli.runner import run_multi_evaluation
 
             dimensions = self.dimensions
             if dimensions == ["all"]:
-                from benchmark.cli import DIMENSION_REGISTRY
+                from benchmark.cli.registry import DIMENSION_REGISTRY
+
                 dimensions = list(DIMENSION_REGISTRY.keys())
 
-            asyncio.run(_run_multi_evaluation(self.models, dimensions, self.samples, debug=False))
+            asyncio.run(
+                run_multi_evaluation(self.models, dimensions, self.samples, debug=False)
+            )
             logger.info("定时评测完成")
         except Exception:
             logger.exception("定时评测执行失败")
