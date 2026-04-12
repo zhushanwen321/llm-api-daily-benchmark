@@ -7,7 +7,7 @@
 # 部署目录结构:
 #   deploy.sh            ← 本脚本
 #   .env                 ← API Key + 调度配置（首次运行自动生成模板）
-#   models.yaml          ← 模型 provider 配置（首次运行自动生成模板）
+#   settings.yml         ← 模型 provider + 默认参数配置（首次运行自动生成模板）
 #   data/                ← 评测数据持久化（自动创建）
 #   dataset/             ← 数据集缓存（HF 下载后持久化，避免重复下载）
 #
@@ -53,7 +53,7 @@ init_env() {
     if [ ! -f "${DEPLOY_DIR}/.env" ]; then
         cat > "${DEPLOY_DIR}/.env" <<'ENVEOF'
 # ========== API 配置 ==========
-# 在 models.yaml 中用 ${ZAI_API_KEY} 引用这些变量
+# 在 settings.yml 中用 ${ZAI_API_KEY} 引用这些变量
 ZAI_API_KEY=your_api_key_here
 MINIMAX_API_KEY=your_api_key_here
 KIMI_API_KEY=your_api_key_here
@@ -63,7 +63,7 @@ KIMI_API_KEY=your_api_key_here
 SCHEDULER_ENABLED=false
 # Cron 表达式（默认每天凌晨 2 点）
 SCHEDULER_CRON=0 2 * * *
-# 要评测的模型列表（逗号分隔，对应 models.yaml 中的 provider/model）
+# 要评测的模型列表（逗号分隔，对应 settings.yml 中的 provider/model）
 SCHEDULER_MODELS=glm/glm-4.7
 # 要评测的维度（逗号分隔，all 表示全部）
 SCHEDULER_DIMENSIONS=all
@@ -86,49 +86,57 @@ ENVEOF
     fi
 }
 
-init_models() {
-    if [ ! -f "${DEPLOY_DIR}/models.yaml" ]; then
-        cat > "${DEPLOY_DIR}/models.yaml" <<'YAMLEOF'
-# 模型 Provider 配置
+init_settings() {
+    if [ ! -f "${DEPLOY_DIR}/settings.yml" ]; then
+        cat > "${DEPLOY_DIR}/settings.yml" <<'YAMLEOF'
+# LLM Benchmark 统一配置（合并 default.yaml + models.yaml）
 # api_key 使用 ${ENV_VAR} 格式引用 .env 中的变量
 
 defaults:
+  model: "glm-4.7"
+  temperature: 0.0
+  max_tokens: 8192
+  max_retries: 3
+  timeout: 300000
+  dataset_root: "benchmark/datasets"
+
+model_defaults:
   max_tokens: 131072
 
 providers:
   glm:
     api_key: ${ZAI_API_KEY}
     api_base: https://open.bigmodel.cn/api/coding/paas/v4
-    rate_limit: 2
+    max_concurrency: 2
     models:
-      glm-4.7:
-        max_tokens: 131072
+      glm-4.7: {}
 
   # minimax:
   #   api_key: ${MINIMAX_API_KEY}
   #   api_base: https://api.minimaxi.com/v1
-  #   rate_limit: 2
+  #   max_concurrency: 2
   #   models:
-  #     minimax-2:
-  #       max_tokens: 131072
+  #     MiniMax-M2.7:
   #       thinking:
   #         enabled: true
+  #         reasoning_field: reasoning_details
   #         request_params:
   #           reasoning_split: true
-  #         reasoning_field: reasoning_details
 
   # kimi:
   #   api_key: ${KIMI_API_KEY}
   #   api_base: https://api.kimi.com/coding/v1
-  #   rate_limit: 2
+  #   max_concurrency: 2
   #   models:
-  #     kimi-2:
-  #       max_tokens: 131072
+  #     kimi-for-coding:
+  #       thinking:
+  #         enabled: true
+  #         reasoning_field: reasoning_content
 YAMLEOF
-        echo "[!] 已生成 models.yaml 模板，请编辑后重新运行:"
-        echo "    vim ${DEPLOY_DIR}/models.yaml"
+        echo "[!] 已生成 settings.yml 模板，请编辑后重新运行:"
+        echo "    vim ${DEPLOY_DIR}/settings.yml"
         echo ""
-        echo "    配置说明:"
+        echo "配置说明:"
         echo "      - 取消注释需要的 provider"
         echo "      - api_key 已使用 \${ENV_VAR} 引用 .env 中的变量"
         echo "      - 新增 provider 时同步在 .env 中添加对应 API Key"
@@ -138,7 +146,7 @@ YAMLEOF
 
 mkdir -p "${DEPLOY_DIR}/data" "${DATASET_HOST_DIR}"
 init_env
-init_models
+init_settings
 
 # 检测数据集缓存标志，决定是否需要网络下载
 if [ -f "${DATASET_FLAG}" ]; then
@@ -163,7 +171,7 @@ else
     echo "    touch ${DATASET_HOST_DIR}/.download-complete"
 fi
 
-echo "[配置] .env 和 models.yaml 已就绪"
+echo "[配置] .env 和 settings.yml 已就绪"
 echo ""
 
 # --- 代理和 hosts 管理 ---
@@ -219,10 +227,9 @@ ${DOCKER_CMD} run -d \
     --name llm-benchmark \
     --restart unless-stopped \
     -p 8501:8501 \
-    -v "${DEPLOY_DIR}/data:/app/benchmark/data" \
+    -v "${DEPLOY_DIR}/data:/app/data" \
     -v "${DATASET_HOST_DIR}:/app/benchmark/datasets" \
-    -v "${DEPLOY_DIR}/.env:/app/.env:ro" \
-    -v "${DEPLOY_DIR}/models.yaml:/app/benchmark/configs/models.yaml:ro" \
+    -v "${DEPLOY_DIR}/settings.yml:/app/benchmark/configs/settings.yml:ro" \
     --env-file "${DEPLOY_DIR}/.env" \
     -e PYTHONUNBUFFERED=1 \
     "${IMAGE}:${TAG}"
@@ -232,10 +239,10 @@ echo "=== 部署完成 ==="
 echo "Web 界面: http://localhost:8501"
 echo ""
 echo "配置文件:"
-echo "  .env:        ${DEPLOY_DIR}/.env"
-echo "  models.yaml: ${DEPLOY_DIR}/models.yaml"
-echo "  数据目录:    ${DEPLOY_DIR}/data/"
-echo "  数据集缓存:  ${DATASET_HOST_DIR}/"
+echo "  .env:         ${DEPLOY_DIR}/.env"
+echo "  settings.yml: ${DEPLOY_DIR}/settings.yml"
+echo "  数据目录:     ${DEPLOY_DIR}/data/"
+echo "  数据集缓存:   ${DATASET_HOST_DIR}/"
 echo ""
 echo "数据集缓存:"
 echo "  首次运行会自动从 HuggingFace 下载数据集到 dataset/ 目录"
