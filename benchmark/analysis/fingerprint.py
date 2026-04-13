@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -53,7 +54,10 @@ def _sanitize_model(model: str) -> str:
 class FingerprintManager:
     """模型指纹管理器。生成、存储、对比模型行为指纹。"""
 
-    def __init__(self, fingerprint_dir: str = "fingerprint_db") -> None:
+    def __init__(self, fingerprint_dir: str | None = None) -> None:
+        if fingerprint_dir is None:
+            data_root = os.getenv("DATA_ROOT", "data")
+            fingerprint_dir = str(Path(data_root) / "fingerprints")
         self._dir = Path(fingerprint_dir)
 
     # ── 公共 API ──

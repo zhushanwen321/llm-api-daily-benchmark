@@ -10,6 +10,13 @@ from benchmark.cli.utils import setup_proxy
 console = Console(force_terminal=True)
 
 
+def _get_fingerprint_dir() -> Path:
+    import os
+
+    data_root = os.getenv("DATA_ROOT", "data")
+    return Path(data_root) / "fingerprints"
+
+
 @click.command("analyze")
 @click.option("--model", default=None, help="要分析的模型（不指定则分析全部）")
 @click.option("--classify", is_flag=True, default=False, help="同时运行跨模型分类")
@@ -25,7 +32,7 @@ def analyze(model: str | None, classify: bool) -> None:
     if model:
         models = [model]
     else:
-        fp_dir = Path("fingerprint_db")
+        fp_dir = _get_fingerprint_dir()
         if not fp_dir.exists():
             console.print("[yellow]No fingerprint data found.[/yellow]")
             return

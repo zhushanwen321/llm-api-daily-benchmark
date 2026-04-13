@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import math
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -26,9 +27,10 @@ _DEFAULT_K = 3
 
 
 class FingerprintClusterAnalyzer:
-    """对模型指纹做 DBSCAN 聚类，检测身份变化。"""
-
-    def __init__(self, fingerprint_dir: str = "fingerprint_db") -> None:
+    def __init__(self, fingerprint_dir: str | None = None) -> None:
+        if fingerprint_dir is None:
+            data_root = os.getenv("DATA_ROOT", "data")
+            fingerprint_dir = str(Path(data_root) / "fingerprints")
         self._dir = Path(fingerprint_dir)
 
     def analyze(
@@ -57,7 +59,9 @@ class FingerprintClusterAnalyzer:
         timestamps = [fp["timestamp"] for fp in history]
 
         clustering = DBSCAN(
-            metric="cosine", eps=eps, min_samples=min_samples,
+            metric="cosine",
+            eps=eps,
+            min_samples=min_samples,
         ).fit(vectors)
         labels = clustering.labels_
 
@@ -116,10 +120,7 @@ class FingerprintClusterAnalyzer:
                 continue
             cos_sim = float(
                 np.dot(vectors[i], vectors[i - 1])
-                / (
-                    np.linalg.norm(vectors[i]) * np.linalg.norm(vectors[i - 1])
-                    + 1e-10
-                )
+                / (np.linalg.norm(vectors[i]) * np.linalg.norm(vectors[i - 1]) + 1e-10)
             )
             changes.append(
                 {
@@ -132,9 +133,7 @@ class FingerprintClusterAnalyzer:
         return changes
 
     @staticmethod
-    def _build_summary(
-        n_clusters: int, n_noise: int, changes: list[dict]
-    ) -> str:
+    def _build_summary(n_clusters: int, n_noise: int, changes: list[dict]) -> str:
         parts: list[str] = []
         if n_clusters <= 1 and n_noise == 0:
             return "Model identity consistent."
@@ -154,17 +153,14 @@ class FingerprintClusterAnalyzer:
         fm = FingerprintManager(str(self._dir))
         history = fm.get_fingerprint_history(model)
         # 排除 baseline（与第一次运行重复）
-        return [
-            fp
-            for fp in history
-            if fp.get("_source_file") != "baseline.json"
-        ]
+        return [fp for fp in history if fp.get("_source_file") != "baseline.json"]
 
 
 class ModelClassifier:
-    """跨模型 KNN 分类器，识别指纹属于哪个已知模型。"""
-
-    def __init__(self, fingerprint_dir: str = "fingerprint_db") -> None:
+    def __init__(self, fingerprint_dir: str | None = None) -> None:
+        if fingerprint_dir is None:
+            data_root = os.getenv("DATA_ROOT", "data")
+            fingerprint_dir = str(Path(data_root) / "fingerprints")
         self._dir = Path(fingerprint_dir)
         self._clf: KNeighborsClassifier | None = None
         self._model_names: list[str] = []
@@ -184,7 +180,8 @@ class ModelClassifier:
             return {"status": "no_data", "message": "No fingerprint data available"}
 
         self._clf = KNeighborsClassifier(
-            n_neighbors=min(k, len(X) - 1), metric="cosine",
+            n_neighbors=min(k, len(X) - 1),
+            metric="cosine",
         )
         self._clf.fit(X, y)
         self._model_names = model_names
@@ -237,7 +234,9 @@ class ModelClassifier:
         }
 
     def cross_validate(
-        self, models: list[str] | None = None, k: int = _DEFAULT_K,
+        self,
+        models: list[str] | None = None,
+        k: int = _DEFAULT_K,
     ) -> dict:
         """留一法交叉验证。
 
@@ -288,7 +287,8 @@ class ModelClassifier:
         }
 
     def _load_training_data(
-        self, models: list[str] | None = None,
+        self,
+        models: list[str] | None = None,
     ) -> tuple[np.ndarray, list[str], list[str]]:
         """从指纹库加载所有模型的指纹作为训练数据。"""
         from benchmark.analysis.fingerprint import FingerprintManager
@@ -300,13 +300,15 @@ class ModelClassifier:
             if not self._dir.exists():
                 return np.array([]), [], []
             model_dirs = [
-                d for d in self._dir.iterdir()
+                d
+                for d in self._dir.iterdir()
                 if d.is_dir() and not d.name.startswith(".")
             ]
         else:
             model_dirs = []
             for m in models:
                 from benchmark.analysis.fingerprint import _sanitize_model
+
                 p = self._dir / _sanitize_model(m)
                 if p.exists():
                     model_dirs.append(p)
@@ -321,10 +323,7 @@ class ModelClassifier:
                 continue
 
             # 排除 baseline
-            fps = [
-                fp for fp in history
-                if fp.get("_source_file") != "baseline.json"
-            ]
+            fps = [fp for fp in history if fp.get("_source_file") != "baseline.json"]
             if not fps:
                 continue
 

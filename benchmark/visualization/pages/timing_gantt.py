@@ -3,6 +3,7 @@
 展示评测过程中各阶段的耗时分布，包括等待时间和执行时间。
 """
 
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -14,7 +15,6 @@ import streamlit as st
 from benchmark.repository.file_repository import FileRepository
 
 
-# 暗色主题配色 - 更鲜明的颜色
 PHASE_COLORS: dict[str, str] = {
     "semaphore_wait": "#ff6b6b",
     "llm_request": "#4ecdc4",
@@ -23,14 +23,15 @@ PHASE_COLORS: dict[str, str] = {
     "quality_signals": "#74b9ff",
 }
 
-# 暗色主题配色方案
 DARK_BG = "#0e1117"
 DARK_BG_SECONDARY = "#1e2129"
 TEXT_COLOR = "#fafafa"
 TEXT_COLOR_SECONDARY = "#b0b3b8"
 GRID_COLOR = "#2d3139"
 
-DATA_ROOT = Path("data")
+
+def _get_data_root() -> Path:
+    return Path(os.getenv("DATA_ROOT", "data"))
 
 
 def get_default_color() -> str:
@@ -39,8 +40,7 @@ def get_default_color() -> str:
 
 @st.cache_resource
 def get_repository() -> FileRepository:
-    """获取 FileRepository 实例（缓存）."""
-    return FileRepository(DATA_ROOT)
+    return FileRepository(_get_data_root())
 
 
 def get_models(repo: FileRepository) -> list[str]:

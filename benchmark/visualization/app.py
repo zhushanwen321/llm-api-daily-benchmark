@@ -78,9 +78,12 @@ def render_overview_page() -> None:
         st.subheader("Results Table")
 
         _DROP_COLUMNS = {
+            "run_id",
+            "status",
+            "model_output",
+            "model_answer",
             "prompt_tokens",
             "completion_tokens",
-            "ttft_content",
             "reasoning_tokens",
         }
         _COLUMN_RENAME = {
@@ -92,6 +95,8 @@ def render_overview_page() -> None:
             "passed": "Passed",
             "execution_time": "Time",
             "tokens_per_second": "Token Speed",
+            "ttft": "TTFT-R",
+            "ttft_content": "TTFT-C",
             "created_at": "Date",
         }
         display_data = []
@@ -109,6 +114,8 @@ def render_overview_page() -> None:
                     display_row[new_key] = (
                         f"{value:.1f} tok/s" if value is not None else "-"
                     )
+                elif key in ("ttft", "ttft_content"):
+                    display_row[new_key] = f"{value:.2f}s" if value is not None else "-"
                 else:
                     display_row[new_key] = value
             display_data.append(display_row)
@@ -400,12 +407,11 @@ def render_overview_page() -> None:
                 st.info("No scoring details available")
 
 
-DATA_ROOT = Path("data")
+DATA_ROOT = Path(os.getenv("DATA_ROOT", "data"))
 
 
 @st.cache_resource
 def get_repository() -> FileRepository:
-    """获取 FileRepository 实例（缓存）."""
     return FileRepository(DATA_ROOT)
 
 

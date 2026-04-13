@@ -49,3 +49,6 @@ Thumbs.db
 
 # Docker 数据持久化
 data/
+
+# Playwright MCP 缓存
+.playwright-mcp/
