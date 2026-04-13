@@ -26,27 +26,38 @@ def group_by_provider(
 async def run_provider_group(
     tasks: list[tuple[str, str]], samples: int, debug: bool, repo: FileRepository
 ) -> None:
-    """同一 provider 内的 evaluation run 并发执行。"""
+    """同一 provider 内的 evaluation run 按 max_concurrency 分批执行。"""
     import asyncio
     from rich.console import Console
+
+    from benchmark.cli.commands.evaluate import run_evaluation
+    from benchmark.config import get_model_config
 
     console = Console(force_terminal=True)
 
     if not tasks:
         return
 
-    from benchmark.cli.commands.evaluate import run_evaluation
+    # 从首个 task 的模型配置中获取 provider 的 max_concurrency
+    first_model_cfg = get_model_config(tasks[0][0])
+    max_conc = first_model_cfg.get("max_concurrency") or len(tasks)
 
-    coros = [
-        run_evaluation(model, dim, samples, debug, repo=repo) for model, dim in tasks
-    ]
-    results = await asyncio.gather(*coros, return_exceptions=True)
+    # 按 max_concurrency 分批串行执行，批内并发
+    for i in range(0, len(tasks), max_conc):
+        batch = tasks[i : i + max_conc]
+        coros = [
+            run_evaluation(model, dim, samples, debug, repo=repo)
+            for model, dim in batch
+        ]
+        results = await asyncio.gather(*coros, return_exceptions=True)
 
-    for i, result in enumerate(results):
-        if isinstance(result, Exception):
-            model, dim = tasks[i]
-            logger.error(f"Task failed for {model}/{dim}: {result}")
-            console.print(f"[red]Error: Evaluation failed for {model}/{dim}[/red]")
+        for j, result in enumerate(results):
+            if isinstance(result, Exception):
+                model, dim = batch[j]
+                logger.error(f"Task failed for {model}/{dim}: {result}")
+                console.print(
+                    f"[red]Error: Evaluation failed for {model}/{dim}[/red]"
+                )
 
 
 async def run_multi_evaluation(

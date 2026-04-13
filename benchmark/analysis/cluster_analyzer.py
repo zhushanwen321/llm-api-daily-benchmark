@@ -55,8 +55,14 @@ class FingerprintClusterAnalyzer:
                 summary=f"数据不足（{len(history)} 条，需要 >= {min_samples}）",
             )
 
-        vectors = np.array([fp["vector"] for fp in history])
+        raw_vectors = [fp["vector"] for fp in history]
         timestamps = [fp["timestamp"] for fp in history]
+
+        # 不同 run 的 answered 数可能不同（如 15 vs 9），导致向量长度不一致
+        max_len = max(len(v) for v in raw_vectors)
+        vectors = np.array(
+            [v + [0.0] * (max_len - len(v)) for v in raw_vectors]
+        )
 
         clustering = DBSCAN(
             metric="cosine",
@@ -336,4 +342,9 @@ class ModelClassifier:
         if not all_vectors:
             return np.array([]), [], []
 
-        return np.array(all_vectors), all_labels, model_names
+        # 不同 run 的向量长度可能不同，统一填充到最大长度
+        max_len = max(len(v) for v in all_vectors)
+        padded = np.array(
+            [v + [0.0] * (max_len - len(v)) for v in all_vectors]
+        )
+        return padded, all_labels, model_names

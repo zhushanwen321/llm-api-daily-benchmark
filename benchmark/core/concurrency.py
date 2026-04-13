@@ -56,7 +56,17 @@ class AsyncConcurrencyLimiter:
             if wait > 0:
                 await asyncio.sleep(wait)
                 continue
-            await self._sem.acquire()
+            try:
+                await self._sem.acquire()
+            except RuntimeError:
+                # Python 3.12+ Semaphore 绑定到首次使用的 event loop，
+                # asyncio.run() 创建新 loop 后旧信号量不可用，需重建
+                logger.debug(
+                    f"[LIMITER] provider={self._provider} event loop 变化，重建 Semaphore"
+                )
+                self._sem = asyncio.Semaphore(self._max)
+                self._rate_limited_until = 0.0
+                continue
             # acquire 成功后再检查一次：等待 semaphore 期间可能被其他 task 设置了退避
             now = loop.time()
             wait = self._rate_limited_until - now
