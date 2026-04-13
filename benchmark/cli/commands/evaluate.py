@@ -17,16 +17,12 @@ from benchmark.cli.registry import (
     DIMENSION_REGISTRY,
     THINKING_SYSTEM_MESSAGE,
 )
+from benchmark.core.tz import now
 from benchmark.cli.utils import get_provider_concurrency, setup_proxy
 from benchmark.core.evaluator import SingleTurnEvaluator
 from benchmark.core.llm_adapter import LLMEvalAdapter
 from benchmark.core.logging_config import setup_logging
-from benchmark.core.timing_tracker import (
-    TimingTracker,
-    get_timing_collector,
-    start_timing_collection,
-    stop_timing_collection,
-)
+from benchmark.core.timing_tracker import TimingTracker
 from benchmark.repository import FileRepository
 from benchmark.scorers.composite import CompositeScorer
 
@@ -82,15 +78,15 @@ def evaluate(
         import sys
 
         print("[BENCHMARK] Starting evaluation...", flush=True, file=sys.stderr)
-        await start_timing_collection("benchmark/data")
         print("[BENCHMARK] Running multi-evaluation...", flush=True, file=sys.stderr)
         try:
             from benchmark.cli.runner import run_multi_evaluation
 
             await run_multi_evaluation(models, dimensions, samples, debug)
             print("[BENCHMARK] Evaluation completed", flush=True, file=sys.stderr)
-        finally:
-            await stop_timing_collection()
+        except Exception:
+            print("[BENCHMARK] Evaluation failed", flush=True, file=sys.stderr)
+            raise
 
     asyncio.run(_run_evaluation_with_timing())
 
@@ -280,11 +276,25 @@ async def _evaluate_task(
 
     result = await _do_evaluate()
 
-    try:
-        timing_collector = get_timing_collector()
-        timing_collector.collect(timing, result_id, model, task.task_id, run_id=run_id)
-    except RuntimeError:
-        logger.debug("Timing collector not initialized, skipping timing collection")
+    timing_records = [
+        {
+            "result_id": result_id,
+            "run_id": run_id,
+            "model": model,
+            "task_id": task.task_id,
+            "phase_name": phase.phase_name,
+            "start_time": phase.start_time,
+            "end_time": phase.end_time,
+            "duration": phase.duration,
+            "wait_time": phase.wait_time,
+            "active_time": phase.active_time,
+            "metadata": phase.metadata,
+            "created_at": now().isoformat(),
+        }
+        for phase in timing._phases.values()
+    ]
+    if timing_records:
+        await asyncio.to_thread(repo.save_timing, run_id, task.task_id, timing_records)
 
     gantt_data = timing.to_gantt_data()
     if gantt_data:

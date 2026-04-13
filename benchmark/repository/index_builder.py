@@ -62,6 +62,7 @@ class IndexBuilder:
 
         return {
             "benchmark_id": benchmark_id,
+            "run_id": benchmark_id,
             "model": status.get("model", ""),
             "dimension": status.get("dimension", ""),
             "dataset": metadata.get("dataset", "") if metadata else "",
@@ -71,6 +72,7 @@ class IndexBuilder:
             "status": status.get("status", "unknown"),
             "avg_score": avg_score,
             "created_at": status.get("created_at", ""),
+            "started_at": metadata.get("started_at", "") if metadata else "",
         }
 
     def _read_metadata(self, benchmark_id: str) -> dict[str, Any] | None:

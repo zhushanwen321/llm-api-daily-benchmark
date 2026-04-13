@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,16 +50,18 @@ class FileRepository(Repository):
 
     def __init__(
         self,
-        data_root: Path | str = "data",
+        data_root: Path | str | None = None,
         execution_id: str | None = None,
     ) -> None:
-        self._root = Path(data_root)
+        root_value = data_root or os.getenv("DATA_ROOT", "data")
+        self._root = Path(root_value)
         self._root.mkdir(parents=True, exist_ok=True)
 
         # 生成或接收 execution_id，用于区分不同的 CLI 执行批次
         self._execution_id = execution_id or self._generate_execution_id()
         self._exec_dir = self._root / self._execution_id
-        self._exec_dir.mkdir(parents=True, exist_ok=True)
+        # exec_dir 延迟创建：仅在首次写入时 mkdir，避免只读场景产生空目录
+        self._exec_dir_created = False
 
         # handlers 的 root 指向 execution 目录，自动按批次隔离
         self._status = StatusHandler(self._exec_dir)
@@ -76,7 +79,16 @@ class FileRepository(Repository):
         # scoring task ID → (benchmark_id, question_id) 缓存
         self._task_location_cache: dict[int, tuple[str, str]] = {}
 
+    def _ensure_exec_dir(self) -> None:
+        if not self._exec_dir_created:
+            self._exec_dir.mkdir(parents=True, exist_ok=True)
+            self._exec_dir_created = True
+
     # ── Run 生命周期 ──
+
+    @property
+    def data_root(self) -> Path:
+        return self._root
 
     def create_benchmark_run(
         self,
@@ -98,6 +110,7 @@ class FileRepository(Repository):
         """
         benchmark_id = self._generate_benchmark_id(model, dimension)
         total_questions = len(questions)
+        self._ensure_exec_dir()
 
         # 创建 status.json
         self._status.create(
@@ -426,14 +439,14 @@ class FileRepository(Repository):
         for run_dir in run_dirs:
             benchmark_id = run_dir.name
             try:
-                status = self._status.get(benchmark_id)
+                status = self._read_json(run_dir / "status.json")
 
                 if model and status.get("model") != model:
                     continue
                 if dimension and status.get("dimension") != dimension:
                     continue
 
-                answers = self._answer.get_answers_by_run(benchmark_id)
+                answers = self._read_answers_from_dir(run_dir)
 
                 for ans in answers:
                     answer_data = ans.get("answer", {})
@@ -462,25 +475,39 @@ class FileRepository(Repository):
         """获取单条结果的完整详情。"""
         for run_dir in self._iter_run_dirs():
             benchmark_id = run_dir.name
-            answers = self._answer.get_answers_by_run(benchmark_id)
+            answers = self._read_answers_from_dir(run_dir)
 
             for ans in answers:
                 answer_data = ans.get("answer", {})
                 if answer_data.get("result_id") == result_id:
                     try:
-                        status = self._status.get(benchmark_id)
+                        status = self._read_json(run_dir / "status.json")
                         model = status.get("model", "")
                         dimension = status.get("dimension", "")
                     except FileNotFoundError:
                         model = ""
                         dimension = ""
 
+                    # 从 metadata.jsonl 读取 dataset 信息
+                    try:
+                        meta_path = run_dir / "metadata.jsonl"
+                        meta_records = self._read_jsonl(meta_path)
+                        meta = meta_records[-1] if meta_records else {}
+                    except (FileNotFoundError, IndexError):
+                        meta = {}
+
                     return {
                         "result_id": result_id,
                         "run_id": benchmark_id,
                         "task_id": answer_data.get("task_id"),
+                        "task_content": answer_data.get("task_content"),
                         "model": model,
                         "dimension": dimension,
+                        "dataset": meta.get("dataset", ""),
+                        "metadata": {
+                            "dataset": meta.get("dataset", ""),
+                            "dimension": dimension,
+                        },
                         "model_output": answer_data.get("model_output"),
                         "model_think": answer_data.get("model_think"),
                         "model_answer": answer_data.get("model_answer"),
@@ -1022,6 +1049,29 @@ class FileRepository(Repository):
                 if (run_entry / "status.json").exists():
                     run_dirs.append(run_entry)
         return run_dirs
+
+    @staticmethod
+    def _read_json(path: Path) -> dict[str, Any]:
+        if not path.exists():
+            raise FileNotFoundError(f"{path} not found")
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @staticmethod
+    def _read_answers_from_dir(run_dir: Path) -> list[dict[str, Any]]:
+        if not run_dir.is_dir():
+            return []
+        answers: list[dict[str, Any]] = []
+        for task_dir in sorted(run_dir.iterdir()):
+            if not task_dir.is_dir():
+                continue
+            answer_path = task_dir / "answer.jsonl"
+            if not answer_path.exists():
+                continue
+            for line in answer_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped:
+                    answers.append(json.loads(stripped))
+        return answers
 
     @staticmethod
     def _read_jsonl(path: Path) -> list[dict[str, Any]]:
